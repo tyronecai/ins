@@ -4,8 +4,8 @@
 //
 // Author: yanshiguang02@baidu.com
 
-#ifndef  COMMON_THREAD_H_
-#define  COMMON_THREAD_H_
+#ifndef COMMON_THREAD_H_
+#define COMMON_THREAD_H_
 
 #include <pthread.h>
 
@@ -14,26 +14,26 @@
 namespace ins_common {
 
 class Thread {
-public:
-    bool Start(boost::function<void()> thread_proc) {
-        user_proc_ = thread_proc;
-        int ret = pthread_create(&tid_, NULL, ProcWrapper, this);
-        return (ret == 0);
-    }
-    bool Join() {
-        int ret = pthread_join(tid_, NULL);
-        return (ret == 0);
-    }
+ public:
+  bool Start(boost::function<void()> thread_proc) {
+    user_proc_ = thread_proc;
+    int ret = pthread_create(&tid_, NULL, ProcWrapper, this);
+    return (ret == 0);
+  }
+  bool Join() {
+    int ret = pthread_join(tid_, NULL);
+    return (ret == 0);
+  }
 
-private:
-    static void* ProcWrapper(void* arg) {
-        reinterpret_cast<Thread*>(arg)->user_proc_();
-        return NULL;
-    }
+ private:
+  static void* ProcWrapper(void* arg) {
+    reinterpret_cast<Thread*>(arg)->user_proc_();
+    return NULL;
+  }
 
-private:
-    boost::function<void()> user_proc_;
-    pthread_t tid_;
+ private:
+  boost::function<void()> user_proc_;
+  pthread_t tid_;
 };
 
 }  // namespace common

@@ -4,14 +4,14 @@
 //
 // Author: yanshiguang02@baidu.com
 
-#ifndef  COMMON_UTIL_H_
-#define  COMMON_UTIL_H_
+#ifndef COMMON_UTIL_H_
+#define COMMON_UTIL_H_
 
-#include <unistd.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#include <dirent.h>
+#include <unistd.h>
 
 #include <map>
 #include <sstream>
@@ -29,10 +29,10 @@ void CloseOnExec(int fd);
 void GetEnviron(std::map<std::string, std::string>& env);
 void GetProcessFdList(int pid, std::vector<int>& fds);
 
-int WriteIntToFile(const std::string filename,int64_t value);
+int WriteIntToFile(const std::string filename, int64_t value);
 }
 }
 
-#endif  //COMMON_UTIL_H_
+#endif  // COMMON_UTIL_H_
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

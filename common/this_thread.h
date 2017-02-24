@@ -4,8 +4,8 @@
 //
 // Author: yanshiguang02@baidu.com
 
-#ifndef  COMMON_THIS_THREAD_H_
-#define  COMMON_THIS_THREAD_H_
+#ifndef COMMON_THIS_THREAD_H_
+#define COMMON_THIS_THREAD_H_
 
 #include <pthread.h>
 #include <stdint.h>
@@ -14,32 +14,29 @@
 #include <unistd.h>
 
 namespace ins_common {
-    
+
 class ThisThread {
-public:
-    /// Sleep in ms
-    static void Sleep(int64_t time_ms) {
-        if (time_ms > 0) {
-            timespec ts = {time_ms / 1000, (time_ms % 1000) * 1000000 };
-            nanosleep(&ts, &ts);
-        }
+ public:
+  /// Sleep in ms
+  static void Sleep(int64_t time_ms) {
+    if (time_ms > 0) {
+      timespec ts = {time_ms / 1000, (time_ms % 1000) * 1000000};
+      nanosleep(&ts, &ts);
     }
-    /// Get thread id
-    static int GetId() {
-        static __thread int s_thread_id = 0;
-        if (s_thread_id == 0) {
-            s_thread_id = syscall(__NR_gettid);
-        }
-        return s_thread_id;
+  }
+  /// Get thread id
+  static int GetId() {
+    static __thread int s_thread_id = 0;
+    if (s_thread_id == 0) {
+      s_thread_id = syscall(__NR_gettid);
     }
-    /// Yield cpu
-    static void Yield() {
-        sched_yield();
-    }
-    
+    return s_thread_id;
+  }
+  /// Yield cpu
+  static void Yield() { sched_yield(); }
 };
 
-} // namespace common
+}  // namespace common
 
 using ins_common::ThisThread;
 

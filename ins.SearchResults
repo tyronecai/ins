@@ -1,0 +1,12 @@
+---- OpenDatabase Matches (11 in 4 files) ----
+Ins_node_impl.cc (server):            if (data_store_->OpenDatabase(log_entry.user)) {
+Ins_node_impl.cc (server):            if (data_store_->OpenDatabase(log_entry.user)) {
+Ins_node_impl.cc (server):                  if (data_store_->OpenDatabase(log_entry.user)) {
+Ins_node_impl.cc (server):            data_store_->OpenDatabase(log_entry.key);
+Storage_manage.cc (storage):bool StorageManager::OpenDatabase(const std::string& name) {
+Storage_manage.h (storage):    bool OpenDatabase(const std::string& name);
+Storage_manage_test.cc (storage):    bool ok = storage_manager.OpenDatabase("user1");
+Storage_manage_test.cc (storage):    ok = storage_manager.OpenDatabase("user2");
+Storage_manage_test.cc (storage):    ok = storage_manager.OpenDatabase("user1");
+Storage_manage_test.cc (storage):    bool ok = storage_manager.OpenDatabase("user1");
+Storage_manage_test.cc (storage):    bool ok = storage_manager.OpenDatabase("user1");

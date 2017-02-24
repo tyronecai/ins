@@ -12,29 +12,19 @@
 namespace ins_common {
 
 class SpinLock {
-public:
-    inline SpinLock() {
-        pthread_spin_init(&spinlock_, PTHREAD_PROCESS_PRIVATE);
-    }
-    virtual inline ~SpinLock() {
-        pthread_spin_destroy(&spinlock_);
-    }
-    inline int Lock() {
-        return pthread_spin_lock(&spinlock_);
-    }
-    inline int Unlock() {
-        return pthread_spin_unlock(&spinlock_);
-    }
-    inline int TryLock() {
-        return pthread_spin_trylock(&spinlock_);
-    }
+ public:
+  inline SpinLock() { pthread_spin_init(&spinlock_, PTHREAD_PROCESS_PRIVATE); }
+  virtual inline ~SpinLock() { pthread_spin_destroy(&spinlock_); }
+  inline int Lock() { return pthread_spin_lock(&spinlock_); }
+  inline int Unlock() { return pthread_spin_unlock(&spinlock_); }
+  inline int TryLock() { return pthread_spin_trylock(&spinlock_); }
 
-private:
-    pthread_spinlock_t spinlock_;
+ private:
+  pthread_spinlock_t spinlock_;
 };
 
-} // namespace common
+}  // namespace common
 
 using ins_common::SpinLock;
 
-#endif // COMMON_SPIN_LOCK_H_
+#endif  // COMMON_SPIN_LOCK_H_
