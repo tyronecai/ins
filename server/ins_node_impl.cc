@@ -110,8 +110,7 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
   UserInfo root = meta_->ReadRootInfo();
   user_manager_ = new UserManager(data_store_path, root);
   std::string tag_value;
-  Status status = data_store_->Get(StorageManager::anonymous_user,
-                                   tag_last_applied_index, &tag_value);
+  Status status = data_store_->Get(StorageManager::anonymous_user, tag_last_applied_index, &tag_value);
   if (status == kOk) {
     last_applied_index_ = BinLogger::StringToInt(tag_value);
   }
@@ -120,8 +119,7 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
 
   MutexLock lock(&mu_);
   CheckLeaderCrash();
-  session_checker_.AddTask(
-      std::bind(&InsNodeImpl::RemoveExpiredSessions, this));
+  session_checker_.AddTask(std::bind(&InsNodeImpl::RemoveExpiredSessions, this));
   binlog_cleaner_.AddTask(std::bind(&InsNodeImpl::GarbageClean, this));
 }
 
@@ -150,8 +148,7 @@ InsNodeImpl::~InsNodeImpl() {
 
 int32_t InsNodeImpl::GetRandomTimeout() {
   float span = FLAGS_elect_timeout_max - FLAGS_elect_timeout_min;
-  int32_t timeout =
-      FLAGS_elect_timeout_min + (int32_t)(span * rand() / (RAND_MAX + 1.0));
+  int32_t timeout = FLAGS_elect_timeout_min + (int32_t)(span * rand() / (RAND_MAX + 1.0));
   return timeout;
 }
 
@@ -161,8 +158,7 @@ void InsNodeImpl::CheckLeaderCrash() {
     return;
   }
   int32_t timeout = GetRandomTimeout();
-  elect_leader_task_ = leader_crash_checker_.DelayTask(
-      timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
+  elect_leader_task_ = leader_crash_checker_.DelayTask(timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
 }
 
 void InsNodeImpl::ShowStatus(
@@ -174,8 +170,7 @@ void InsNodeImpl::ShowStatus(
   int64_t last_log_index;
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
-  LOG(DEBUG, "last_log_index: %ld, last_log_term: %d", last_log_index,
-      last_log_term);
+  LOG(DEBUG, "last_log_index: %ld, last_log_term: %d", last_log_index, last_log_term);
   {
     MutexLock lock(&mu_);
     response->set_status(status_);
@@ -191,15 +186,13 @@ void InsNodeImpl::ShowStatus(
 
 void InsNodeImpl::TransToFollower(const char* msg, int64_t new_term) {
   mu_.AssertHeld();
-  LOG(INFO, "%s, my term is outdated(%ld < %ld), trans to follower", msg,
-      current_term_, new_term);
+  LOG(INFO, "%s, my term is outdated(%ld < %ld), trans to follower", msg, current_term_, new_term);
   status_ = kFollower;
   current_term_ = new_term;
   meta_->WriteCurrentTerm(current_term_);
 }
 
-inline std::string InsNodeImpl::BindKeyAndUser(const std::string& user,
-                                               const std::string& key) {
+inline std::string InsNodeImpl::BindKeyAndUser(const std::string& user, const std::string& key) {
   return user + "::" + key;
 }
 
@@ -434,7 +427,7 @@ void InsNodeImpl::HeartBeatCallback(
 void InsNodeImpl::HeartBeatForReadCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed, int /*error*/,
-    ClientReadAck::Ptr context) {
+    std::shared_ptr<ClientReadAck> context) {
   LOG(INFO, "recv HeartBeatForReadCallback: [%s] <=> [%s]",
       request->ShortDebugString().c_str(),
       response->ShortDebugString().c_str());
@@ -455,8 +448,7 @@ void InsNodeImpl::HeartBeatForReadCallback(
   }
   if (!failed) {
     if (response_ptr->current_term() > current_term_) {
-      TransToFollower("InsNodeImpl::HeartBeatCallbackForRead",
-                      response_ptr->current_term());
+      TransToFollower("InsNodeImpl::HeartBeatCallbackForRead", response_ptr->current_term());
       context->response->set_success(false);
       context->response->set_hit(false);
       context->response->set_leader_id("");
@@ -999,7 +991,7 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
   if (members_.size() > 1 && (now_timestamp - heartbeat_read_timestamp_) >
                                  1000 * FLAGS_elect_timeout_min) {
     LOG(DEBUG, "broadcast for read");
-    ClientReadAck::Ptr context(new ClientReadAck());
+    auto context = std::make_shared<ClientReadAck>();
     context->request = request;
     context->response = response;
     context->done = done;
@@ -1747,7 +1739,7 @@ void InsNodeImpl::Watch(::google::protobuf::RpcController* controller,
     return;
   }
 
-  WatchAck::Ptr ack_obj(new WatchAck(response, done));
+  auto ack_obj = std::make_shared<WatchAck>(response, done);
 
   const std::string& key = request->key();
   const std::string& bindedkey =

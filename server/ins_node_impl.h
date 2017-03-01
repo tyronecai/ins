@@ -63,7 +63,6 @@ struct ClientReadAck {
         succ_count(0),
         err_count(0),
         triggered(false) {}
-  typedef std::shared_ptr<ClientReadAck> Ptr;
 };
 
 struct Session {
@@ -96,13 +95,12 @@ struct WatchAck {
       done->Run();
     }
   }
-  typedef std::shared_ptr<WatchAck> Ptr;
 };
 
 struct WatchEvent {
   std::string key;
   std::string session_id;
-  WatchAck::Ptr ack;
+  std::shared_ptr<WatchAck> ack;
 };
 
 typedef multi_index_container<
@@ -195,7 +193,7 @@ class InsNodeImpl : public InsNode {
   void HeartBeatForReadCallback(
       const ::galaxy::ins::AppendEntriesRequest* request,
       ::galaxy::ins::AppendEntriesResponse* response, bool failed, int error,
-      ClientReadAck::Ptr context);
+      std::shared_ptr<ClientReadAck> context);
   void ForwardKeepAliveCallback(const ::galaxy::ins::KeepAliveRequest* request,
                                 ::galaxy::ins::KeepAliveResponse* response,
                                 bool failed, int error);
