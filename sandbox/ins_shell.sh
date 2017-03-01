@@ -1,4 +1,7 @@
 #!/bin/bash
+
+cd $(dirname $0)
+
 while true
 do
 	read -e -p "galaxy ins> " cmd arg1 arg2
@@ -62,7 +65,7 @@ do
 		echo "  lock (key) [lock on specific key]"
 		echo "  register (username) (password) [register a new user]"
 		echo "  login (username) (password) [login and open a new session]"
-		echo "  enter quit to exit shell"
+		echo "  quit to exit shell"
 	;;
 
 	esac

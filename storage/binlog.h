@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <boost/function.hpp>
 #include <string>
 #include "common/mutex.h"
 #include "leveldb/db.h"

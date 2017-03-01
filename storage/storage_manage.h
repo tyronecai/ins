@@ -1,7 +1,6 @@
 #ifndef _GALAXY_SDK_STORAGE_MANAGE_H_
 #define _GALAXY_SDK_STORAGE_MANAGE_H_
 
-#include <boost/function.hpp>
 #include <map>
 #include <string>
 #include "common/mutex.h"
@@ -27,6 +26,9 @@ class StorageManager {
 
   // All user field in proto set default value to anonymous_user, which is ""
   static const std::string anonymous_user;
+
+ private:
+  Status FindDB(const std::string& name, leveldb::DB** ret);
 
  public:
   class Iterator {

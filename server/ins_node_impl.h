@@ -8,9 +8,9 @@
 #include <boost/multi_index/member.hpp>
 #include <boost/multi_index/ordered_index.hpp>
 #include <boost/multi_index_container.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/unordered_map.hpp>
+#include <memory>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <string>
 #include <vector>
@@ -63,7 +63,7 @@ struct ClientReadAck {
         succ_count(0),
         err_count(0),
         triggered(false) {}
-  typedef boost::shared_ptr<ClientReadAck> Ptr;
+  typedef std::shared_ptr<ClientReadAck> Ptr;
 };
 
 struct Session {
@@ -96,7 +96,7 @@ struct WatchAck {
       done->Run();
     }
   }
-  typedef boost::shared_ptr<WatchAck> Ptr;
+  typedef std::shared_ptr<WatchAck> Ptr;
 };
 
 struct WatchEvent {
@@ -189,7 +189,7 @@ class InsNodeImpl : public InsNode {
   void VoteCallback(const ::galaxy::ins::VoteRequest* request,
                     ::galaxy::ins::VoteResponse* response, bool failed,
                     int error);
-  void HearBeatCallback(const ::galaxy::ins::AppendEntriesRequest* request,
+  void HeartBeatCallback(const ::galaxy::ins::AppendEntriesRequest* request,
                         ::galaxy::ins::AppendEntriesResponse* response,
                         bool failed, int error);
   void HeartBeatForReadCallback(
@@ -245,6 +245,7 @@ class InsNodeImpl : public InsNode {
 
  public:
   std::vector<std::string> members_;
+  std::vector<std::string> others_;
 
  private:
   bool stop_;
@@ -264,6 +265,7 @@ class InsNodeImpl : public InsNode {
   Meta* meta_;
   BinLogger* binlogger_;
   UserManager* user_manager_;
+
   // for leaders
   StorageManager* data_store_;
   ThreadPool replicatter_;
@@ -271,12 +273,13 @@ class InsNodeImpl : public InsNode {
   std::map<std::string, int64_t> next_index_;
   std::map<std::string, int64_t> match_index_;
   CondVar* replication_cond_;
-  boost::unordered_map<int64_t, ClientAck> client_ack_;
+  std::unordered_map<int64_t, ClientAck> client_ack_;
   std::set<std::string> replicating_;
   int64_t heartbeat_read_timestamp_;
   bool in_safe_mode_;
   int64_t server_start_timestamp_;
   ThreadPool event_trigger_;
+
   // for all servers
   SessionContainer sessions_;
   Mutex sessions_mu_;
@@ -286,7 +289,7 @@ class InsNodeImpl : public InsNode {
   CondVar* commit_cond_;
   WatchEventContainer watch_events_;
   Mutex watch_mu_;
-  boost::unordered_map<std::string, std::set<std::string> > session_locks_;
+  std::unordered_map<std::string, std::set<std::string> > session_locks_;
   Mutex session_locks_mu_;
   ThreadPool binlog_cleaner_;
   ThreadPool follower_worker_;

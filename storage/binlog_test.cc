@@ -1,7 +1,6 @@
 #include "binlog.h"
 #include <gtest/gtest.h>
 #include <stdlib.h>
-#include <boost/bind.hpp>
 #include <string>
 
 using namespace galaxy::ins;

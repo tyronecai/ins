@@ -25,18 +25,20 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
   options.create_if_missing = true;
   if (compress) {
     options.compression = leveldb::kSnappyCompression;
-    LOG(INFO, "enable snappy compress for binlog");
+    LOG(INFO, "enable snappy compress for binlog for %s", full_name.c_str());
   }
   options.write_buffer_size = write_buffer_size;
   options.block_size = block_size;
-  LOG(INFO, "[binlog]: block_size: %d, writer_buffer_size: %d",
-      options.block_size, options.write_buffer_size);
+  LOG(INFO, "[binlog]: %s, block_size: %d, writer_buffer_size: %d",
+      full_name.c_str(), options.block_size, options.write_buffer_size);
   leveldb::Status status = leveldb::DB::Open(options, full_name, &db_);
   if (!status.ok()) {
     LOG(FATAL, "failed to open db %s err %s", full_name.c_str(),
         status.ToString().c_str());
     assert(status.ok());
   }
+
+  LOG(INFO, "try to init length & last log term from db");
   std::string value;
   status = db_->Get(leveldb::ReadOptions(), length_tag, &value);
   if (status.ok() && !value.empty()) {
@@ -46,6 +48,7 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
       bool slot_ok = ReadSlot(length_ - 1, &log_entry);
       assert(slot_ok);
       last_log_term_ = log_entry.term;
+      LOG(INFO, "get length: %ld, last log term: %ld", length_, last_log_term_);
     }
   }
 }

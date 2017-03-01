@@ -1,41 +1,24 @@
-# OPT ?= -O2 -DNDEBUG     # (A) Production use (optimized mode)
-OPT ?= -g2 -Wall -fPIC         # (B) Debug mode, w/ full line-level debugging symbols
-# OPT ?= -O2 -g2 -DNDEBUG # (C) Profiling mode: opt, but w/debugging symbols
+# OPT ?= -std=c++11 -O2 -DNDEBUG     # (A) Production use (optimized mode)
+OPT ?= -std=c++11 -g2 -Wall -fPIC         # (B) Debug mode, w/ full line-level debugging symbols
+# OPT ?= std=c++11 -O2 -g2 -DNDEBUG # (C) Profiling mode: opt, but w/debugging symbols
 
 # Thirdparty
-SNAPPY_PATH=./thirdparty/snappy/
-PROTOBUF_PATH=./thirdparty/protobuf/
-PROTOC_PATH=./thirdparty/protobuf/bin/
-PROTOC=protoc
-PBRPC_PATH ?=./thirdparty/sofa-pbrpc/output/
-BOOST_PATH ?=./thirdparty/boost/
-GFLAGS_PATH=./thirdparty/gflags/
-NEXUS_LDB_PATH=./thirdparty/leveldb/
-GTEST_PATH=./gtest-1.7.0/
-PREFIX=/usr/local/
-DEPENDS=./depends/
+DEPENDS=depends
+PROTOC=$(DEPENDS)/bin/protoc
+BOOST_PATH ?=$(DEPENDS)/boost_1_63_0
+NEXUS_LDB_PATH=./thirdparty/leveldb
+PREFIX=/usr/local
 
-INCLUDE_PATH = -I./ -I$(NEXUS_LDB_PATH)/include -I$(PREFIX)/include -I$(PROTOBUF_PATH)/include \
-               -I$(PBRPC_PATH)/include \
-               -I$(SNAPPY_PATH)/include \
-               -I$(GFLAGS_PATH)/include \
-               -I$(DEPENDS)/include \
-               -I$(BOOST_PATH)
+INCLUDE_PATH = -I. -I$(NEXUS_LDB_PATH)/include -I$(DEPENDS)/include -I$(PREFIX)/include -I$(BOOST_PATH)
 
-LDFLAGS = -L$(DEPENDS)/lib -L$(PROTOBUF_PATH)/lib \
-          -L$(PBRPC_PATH)/lib -lsofa-pbrpc -lprotobuf \
-          -L$(SNAPPY_PATH)/lib -lsnappy \
-          -L$(GFLAGS_PATH)/lib -lgflags \
-          -L$(NEXUS_LDB_PATH) -lleveldb -L$(PREFIX)/lib \
-          -lrt -lz -lpthread
+LDFLAGS = -L$(DEPENDS)/lib -lsofa-pbrpc -lprotobuf -lsnappy -lgflags -L$(NEXUS_LDB_PATH) -lleveldb \
+					-L$(PREFIX)/lib -lrt -lz -lpthread
 
-LDFLAGS_SO = -L$(DEPENDS)/lib -L$(PROTOBUF_PATH)/lib \
-          -L$(PBRPC_PATH)/lib -Wl,--whole-archive -lsofa-pbrpc -lprotobuf -Wl,--no-whole-archive \
-          -L$(SNAPPY_PATH)/lib -lsnappy \
-          -L$(GFLAGS_PATH)/lib -Wl,--whole-archive -lgflags -Wl,--no-whole-archive \
-          -L$(NEXUS_LDB_PATH) -lleveldb -L$(PREFIX)/lib \
-          -lz -lpthread
-
+LDFLAGS_SO = -L$(DEPENDS)/lib \
+          -Wl,--whole-archive -lsofa-pbrpc -lprotobuf \
+					-Wl,--no-whole-archive -lsnappy \
+					-Wl,--whole-archive -lgflags \
+					-Wl,--no-whole-archive -L$(NEXUS_LDB_PATH) -lleveldb -L$(PREFIX)/lib -lz -lpthread
 CXXFLAGS += $(OPT)
 
 PROTO_FILE = $(wildcard proto/*.proto)
@@ -107,14 +90,15 @@ clean:
 	rm -rf output/
 
 cp: $(BIN) $(LIB)
+	rm -rf output
 	mkdir -p output/bin
 	mkdir -p output/lib
 	mkdir -p output/include
-	cp ins output/bin
-	cp ins_cli output/bin
-	cp sample output/bin
+	mv ins output/bin
+	mv ins_cli output/bin
+	mv sample output/bin
 	cp sdk/ins_sdk.h output/include
-	cp libins_sdk.a output/lib
+	mv libins_sdk.a output/lib
 
 sdk: $(LIB)
 	mkdir -p output/include

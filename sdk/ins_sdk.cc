@@ -4,17 +4,20 @@
 #include <gflags/gflags.h>
 #include <sys/utsname.h>
 #include <algorithm>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/bind.hpp>
 #include <boost/function.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <boost/uuid/sha1.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+
+#include <memory>
 #include <iterator>
 #include <sstream>
 #include <vector>
+
 #include "common/asm_atomic.h"
 #include "common/mutex.h"
 #include "common/this_thread.h"
@@ -131,7 +134,7 @@ bool InsSDK::ShowCluster(std::vector<ClusterNodeInfo>* cluster_info) {
     node_info.server_id = *it;
     galaxy::ins::InsNode_Stub* stub;
     rpc_client_->GetStub(*it, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     ::galaxy::ins::ShowStatusRequest request;
     ::galaxy::ins::ShowStatusResponse response;
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::ShowStatus,
@@ -214,7 +217,7 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::PutRequest request;
     galaxy::ins::PutResponse response;
     {
@@ -251,7 +254,7 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Put, &request,
                                       &response, 2, 1);
         if (ok && (response.success() || response.uuid_expired())) {
@@ -292,7 +295,7 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::GetRequest request;
     galaxy::ins::GetResponse response;
     {
@@ -333,7 +336,7 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Get, &request,
                                       &response, 2, 1);
         if (ok && (response.success() || response.uuid_expired())) {
@@ -386,7 +389,7 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::ScanRequest request;
     galaxy::ins::ScanResponse response;
     {
@@ -431,7 +434,7 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Scan, &request,
                                       &response, 5, 1);
         if (ok && (response.success() || response.uuid_expired())) {
@@ -479,7 +482,7 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::DelRequest request;
     galaxy::ins::DelResponse response;
     {
@@ -515,7 +518,7 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Delete, &request,
                                       &response, 2, 1);
         if (ok && (response.success() || response.uuid_expired())) {
@@ -599,7 +602,7 @@ void InsSDK::KeepAliveTask() {
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::KeepAliveRequest request;
     galaxy::ins::KeepAliveResponse response;
     request.set_session_id(GetSessionID());
@@ -628,7 +631,7 @@ void InsSDK::KeepAliveTask() {
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::KeepAlive, &request,
                                       &response, 2, 1);
         if (ok && response.success()) {
@@ -674,8 +677,8 @@ void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
                                galaxy::ins::WatchResponse* response,
                                bool failed, int /*error*/,
                                std::string server_id, int64_t watch_id) {
-  boost::scoped_ptr<const galaxy::ins::WatchRequest> request_ptr(request);
-  boost::scoped_ptr<galaxy::ins::WatchResponse> response_ptr(response);
+  std::unique_ptr<const galaxy::ins::WatchRequest> request_ptr(request);
+  std::unique_ptr<galaxy::ins::WatchResponse> response_ptr(response);
   {
     MutexLock lock(mu_);
     if (stop_) {
@@ -756,7 +759,7 @@ void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
         request->key().c_str());
     galaxy::ins::InsNode_Stub* stub;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::WatchRequest* req = new galaxy::ins::WatchRequest();
     galaxy::ins::WatchResponse* rsps = new galaxy::ins::WatchResponse();
     req->CopyFrom(*request);
@@ -810,7 +813,7 @@ void InsSDK::KeepWatchTask(const std::string& key, const std::string& old_value,
   LOG(INFO, "try watch to %s, key: %s", server_id.c_str(), key.c_str());
   galaxy::ins::InsNode_Stub* stub;
   rpc_client_->GetStub(server_id, &stub);
-  boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+  std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
   galaxy::ins::WatchRequest* request = new galaxy::ins::WatchRequest();
   galaxy::ins::WatchResponse* response = new galaxy::ins::WatchResponse();
   {
@@ -879,7 +882,7 @@ bool InsSDK::TryLock(const std::string& key, SDKError* error) {
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::LockRequest request;
     galaxy::ins::LockResponse response;
     {
@@ -899,7 +902,7 @@ bool InsSDK::TryLock(const std::string& key, SDKError* error) {
       server_id = response.leader_id();
       LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
       rpc_client_->GetStub(server_id, &stub2);
-      boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+      std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
       ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Lock, &request,
                                     &response, 2, 1);
       if (!ok) {
@@ -944,7 +947,7 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::UnLockRequest request;
     galaxy::ins::UnLockResponse response;
     {
@@ -982,7 +985,7 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::UnLock, &request,
                                       &response, 2, 1);
         if (ok && (response.success() || response.uuid_expired())) {
@@ -1052,7 +1055,7 @@ bool InsSDK::Login(const std::string& username, const std::string& password,
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::LoginRequest request;
     galaxy::ins::LoginResponse response;
     request.set_username(username);
@@ -1089,7 +1092,7 @@ bool InsSDK::Login(const std::string& username, const std::string& password,
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Login, &request,
                                       &response, 2, 1);
         if (response.status() != galaxy::ins::kError) {
@@ -1140,7 +1143,7 @@ bool InsSDK::Logout(SDKError* error) {
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::LogoutRequest request;
     galaxy::ins::LogoutResponse response;
     request.set_uuid(logged_uuid_);
@@ -1174,7 +1177,7 @@ bool InsSDK::Logout(SDKError* error) {
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Logout, &request,
                                       &response, 2, 1);
         if (response.status() != galaxy::ins::kError) {
@@ -1224,7 +1227,7 @@ bool InsSDK::Register(const std::string& username, const std::string& password,
     LOG(DEBUG, "rpc to %s", server_id.c_str());
     galaxy::ins::InsNode_Stub *stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::RegisterRequest request;
     galaxy::ins::RegisterResponse response;
     request.set_username(username);
@@ -1256,7 +1259,7 @@ bool InsSDK::Register(const std::string& username, const std::string& password,
         server_id = response.leader_id();
         LOG(DEBUG, "redirect to leader :%s", server_id.c_str());
         rpc_client_->GetStub(server_id, &stub2);
-        boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Register, &request,
                                       &response, 2, 1);
         if (response.status() != galaxy::ins::kError) {
@@ -1290,7 +1293,7 @@ bool InsSDK::CleanBinlog(const std::string& server_id, int64_t end_index,
   }
   galaxy::ins::InsNode_Stub* stub;
   rpc_client_->GetStub(server_id, &stub);
-  boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+  std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
   galaxy::ins::CleanBinlogRequest request;
   galaxy::ins::CleanBinlogResponse response;
   request.set_end_index(end_index);
@@ -1318,7 +1321,7 @@ bool InsSDK::ShowStatistics(std::vector<NodeStatInfo>* statistics) {
     node_stat.server_id = *it;
     galaxy::ins::InsNode_Stub* stub;
     rpc_client_->GetStub(*it, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::RpcStatRequest request;
     galaxy::ins::RpcStatResponse response;
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::RpcStat, &request,

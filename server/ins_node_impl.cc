@@ -1,5 +1,6 @@
 #include "ins_node_impl.h"
 
+#include <memory>
 #include <assert.h>
 #include <gflags/gflags.h>
 #include <sofa/pbrpc/pbrpc.h>
@@ -8,7 +9,6 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/bind.hpp>
 #include <boost/function.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <limits>
 #include <vector>
 #include "common/this_thread.h"
@@ -62,35 +62,40 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
   srand(time(NULL));
   replication_cond_ = new CondVar(&mu_);
   commit_cond_ = new CondVar(&mu_);
-  std::vector<std::string>::const_iterator it = members.begin();
+  // 要求自己必须在集群配置里面
   bool self_in_cluster = false;
-  for (; it != members.end(); it++) {
+  for (auto it = members.begin(); it != members.end(); it++) {
     members_.push_back(*it);
     if (self_id_ == *it) {
       LOG(INFO, "cluster member[Self]: %s", it->c_str());
       self_in_cluster = true;
     } else {
       LOG(INFO, "cluster member: %s", it->c_str());
+      others_.push_back(*it);
     }
   }
   if (!self_in_cluster) {
     LOG(FATAL,
-        "this node is not in cluster membership,"
-        " please check your configuration. self: %s",
+        "this node is not in cluster membership, please check your "
+        "configuration. self: %s",
         self_id_.c_str());
     exit(-1);
   }
+  // verify cluster size
   if (members_.size() > static_cast<size_t>(FLAGS_max_cluster_size)) {
     LOG(FATAL, "cluster size is larger than configuration: %d > %d",
         members_.size(), FLAGS_max_cluster_size);
     exit(-1);
   }
   if (members_.size() == 1) {
+    LOG(INFO, "we in single node mode");
     single_node_mode_ = true;
+  } else {
+    LOG(INFO, "we in cluster mode with %d nodes", members_.size());
   }
+
   std::string sub_dir = self_id_;
   boost::replace_all(sub_dir, ":", "_");
-
   meta_ = new Meta(FLAGS_ins_data_dir + "/" + sub_dir);
   binlogger_ = new BinLogger(FLAGS_ins_binlog_dir + "/" + sub_dir,
                              FLAGS_ins_binlog_compress,
@@ -111,6 +116,7 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
   }
   server_start_timestamp_ = ins_common::timer::get_micros();
   committer_.AddTask(boost::bind(&InsNodeImpl::CommitIndexObserv, this));
+
   MutexLock lock(&mu_);
   CheckLeaderCrash();
   session_checker_.AddTask(
@@ -145,7 +151,6 @@ int32_t InsNodeImpl::GetRandomTimeout() {
   float span = FLAGS_elect_timeout_max - FLAGS_elect_timeout_min;
   int32_t timeout =
       FLAGS_elect_timeout_min + (int32_t)(span * rand() / (RAND_MAX + 1.0));
-  // LOG(INFO, "random timeout %ld", timeout);
   return timeout;
 }
 
@@ -205,8 +210,8 @@ void InsNodeImpl::CommitIndexObserv() {
   MutexLock lock(&mu_);
   while (!stop_) {
     while (!stop_ && commit_index_ <= last_applied_index_) {
-      LOG(DEBUG, "commit_idx: %ld, last_applied_index: %ld", commit_index_,
-          last_applied_index_);
+      LOG(INFO, "commit_idx: %ld, last_applied_index: %ld, we wait",
+          commit_index_, last_applied_index_);
       commit_cond_->Wait();
     }
     if (stop_) {
@@ -216,6 +221,8 @@ void InsNodeImpl::CommitIndexObserv() {
     int64_t to_idx = commit_index_;
     bool nop_committed = false;
     mu_.Unlock();
+
+    LOG(INFO, "wait back, process index: %ld to %ld", from_idx, to_idx);
     for (int64_t i = from_idx + 1; i <= to_idx; i++) {
       LogEntry log_entry;
       bool slot_ok = binlogger_->ReadSlot(i, &log_entry);
@@ -227,7 +234,8 @@ void InsNodeImpl::CommitIndexObserv() {
       switch (log_entry.op) {
         case kPut:
         case kLock:
-          LOG(DEBUG, "add to data_store_, key: %s, value: %s, user: %s",
+          LOG(INFO,
+              "Put & Lock, add to data_store_, key: %s, value: %s, user: %s",
               log_entry.key.c_str(), log_entry.value.c_str(),
               log_entry.user.c_str());
           type_and_value.append(1, static_cast<char>(log_entry.op));
@@ -254,7 +262,7 @@ void InsNodeImpl::CommitIndexObserv() {
           assert(s == kOk);
           break;
         case kDel:
-          LOG(INFO, "delete from data_store_, key: %s", log_entry.key.c_str());
+          LOG(INFO, "Delete from data_store_, key: %s", log_entry.key.c_str());
           s = data_store_->Delete(log_entry.user, log_entry.key);
           if (s == kUnknownUser) {
             if (data_store_->OpenDatabase(log_entry.user)) {
@@ -268,7 +276,7 @@ void InsNodeImpl::CommitIndexObserv() {
                           log_entry.value, true));
           break;
         case kNop:
-          LOG(DEBUG, "kNop got, do nothing, key: %s", log_entry.key.c_str());
+          LOG(INFO, "kNop got, do nothing, key: %s", log_entry.key.c_str());
           {
             MutexLock locker(&mu_);
             if (log_entry.term == current_term_) {
@@ -279,6 +287,8 @@ void InsNodeImpl::CommitIndexObserv() {
           }
           break;
         case kUnLock: {
+          LOG(INFO, "Unlock, user: %s, key: %s", log_entry.user.c_str(),
+              log_entry.key.c_str());
           const std::string& key = log_entry.key;
           const std::string& old_session = log_entry.value;
           std::string value;
@@ -305,6 +315,9 @@ void InsNodeImpl::CommitIndexObserv() {
           }
         } break;
         case kLogin:
+          LOG(INFO, "Login, key: %s, value: %s, user: %s",
+              log_entry.key.c_str(), log_entry.value.c_str(),
+              log_entry.user.c_str());
           log_status = user_manager_->Login(log_entry.key, log_entry.value,
                                             log_entry.user);
           if (log_status == kOk) {
@@ -313,9 +326,12 @@ void InsNodeImpl::CommitIndexObserv() {
           }
           break;
         case kLogout:
+          LOG(INFO, "Logout, user: %s", log_entry.user.c_str());
           log_status = user_manager_->Logout(log_entry.user);
           break;
         case kRegister:
+          LOG(INFO, "Register, key: %s, value: %s", log_entry.key.c_str(),
+              log_entry.value.c_str());
           log_status = user_manager_->Register(log_entry.key, log_entry.value);
           break;
         default:
@@ -381,26 +397,32 @@ void InsNodeImpl::ForwardKeepAliveCallback(
     const ::galaxy::ins::KeepAliveRequest* request,
     ::galaxy::ins::KeepAliveResponse* response, bool /*failed*/,
     int /*error*/) {
-  boost::scoped_ptr<const galaxy::ins::KeepAliveRequest> request_ptr(request);
-  boost::scoped_ptr<galaxy::ins::KeepAliveResponse> response_ptr(response);
+  LOG(INFO, "recv ForwardKeepAliveCallback: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
+  std::unique_ptr<const galaxy::ins::KeepAliveRequest> request_ptr(request);
+  std::unique_ptr<galaxy::ins::KeepAliveResponse> response_ptr(response);
   LOG(DEBUG, "heartbeat from clients forwarded");
 }
 
-void InsNodeImpl::HearBeatCallback(
+void InsNodeImpl::HeartBeatCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed,
     int /*error*/) {
+  LOG(INFO, "recv HeartBeatCallback: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
-  boost::scoped_ptr<const galaxy::ins::AppendEntriesRequest> request_ptr(
+  std::unique_ptr<const galaxy::ins::AppendEntriesRequest> request_ptr(
       request);
-  boost::scoped_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
+  std::unique_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
   if (status_ != kLeader) {
-    LOG(INFO, "outdated HearBeatCallback, I am no longer leader now.");
+    LOG(INFO, "outdated HeartBeatCallback, I am no longer leader now.");
     return;
   }
   if (!failed) {
     if (response_ptr->current_term() > current_term_) {
-      TransToFollower("InsNodeImpl::HearBeatCallback",
+      TransToFollower("InsNodeImpl::HeartBeatCallback",
                       response_ptr->current_term());
     } else {
       // LOG(INFO, "I am the leader at term: %ld", current_term_);
@@ -412,10 +434,12 @@ void InsNodeImpl::HeartBeatForReadCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed, int /*error*/,
     ClientReadAck::Ptr context) {
+  LOG(INFO, "recv HeartBeatForReadCallback: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
-  boost::scoped_ptr<const galaxy::ins::AppendEntriesRequest> request_ptr(
-      request);
-  boost::scoped_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
+  std::unique_ptr<const galaxy::ins::AppendEntriesRequest> request_ptr(request);
+  std::unique_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
   if (context->triggered) {
     return;
   }
@@ -497,29 +521,26 @@ void InsNodeImpl::BroadCastHeartBeat() {
     return;
   }
   if (status_ != kLeader) {
+    LOG(INFO, "no longer leader");
     return;
   }
-  // LOG(INFO,"broadcast heartbeat to clusters");
-  std::vector<std::string>::iterator it = members_.begin();
-  for (; it != members_.end(); it++) {
-    if (*it == self_id_) {
-      continue;
-    }
+  for (auto it = others_.begin(); it != others_.end(); it++) {
     InsNode_Stub* stub;
     rpc_client_.GetStub(*it, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
-    ::galaxy::ins::AppendEntriesRequest* request =
-        new ::galaxy::ins::AppendEntriesRequest();
-    ::galaxy::ins::AppendEntriesResponse* response =
-        new ::galaxy::ins::AppendEntriesResponse();
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    auto request = new ::galaxy::ins::AppendEntriesRequest();
+    auto response = new ::galaxy::ins::AppendEntriesResponse();
     request->set_term(current_term_);
     request->set_leader_id(self_id_);
     request->set_leader_commit_index(commit_index_);
+    LOG(INFO,
+        "Send Heartbeat to %s, current_term: %ld, self: %s, "
+        "commit_index: %ld",
+        it->c_str(), current_term_, self_id_.c_str(), commit_index_);
     boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
                          ::galaxy::ins::AppendEntriesResponse*, bool, int)>
-        callback;
-    callback =
-        boost::bind(&InsNodeImpl::HearBeatCallback, this, _1, _2, _3, _4);
+        callback =
+            boost::bind(&InsNodeImpl::HeartBeatCallback, this, _1, _2, _3, _4);
     rpc_client_.AsyncRequest(stub, &InsNode_Stub::AppendEntries, request,
                              response, callback, 2, 1);
   }
@@ -529,17 +550,13 @@ void InsNodeImpl::BroadCastHeartBeat() {
 
 void InsNodeImpl::StartReplicateLog() {
   mu_.AssertHeld();
-  LOG(INFO, "StartReplicateLog");
-  std::vector<std::string>::iterator it = members_.begin();
-  for (; it != members_.end(); it++) {
-    if (*it == self_id_) {
-      continue;
-    }
+  LOG(INFO, "Start ReplicateLog");
+  for (auto it = others_.begin(); it != others_.end(); it++) {
     if (replicating_.find(*it) != replicating_.end()) {
-      LOG(INFO, "there is another thread replicating on : %s", it->c_str());
+      LOG(INFO, "there is another thread replicating on: %s", it->c_str());
       continue;
     }
-    std::string follower_id = *it;
+    std::string &follower_id = *it;
     next_index_[follower_id] = binlogger_->GetLength();
     match_index_[follower_id] = -1;
     replicatter_.AddTask(boost::bind(&InsNodeImpl::ReplicateLog, this, *it));
@@ -557,7 +574,7 @@ void InsNodeImpl::TransToLeader() {
   in_safe_mode_ = true;
   status_ = kLeader;
   current_leader_ = self_id_;
-  LOG(INFO, "I win the election, term:%d", current_term_);
+  LOG(INFO, "I win the election, term: %ld", current_term_);
   heart_beat_pool_.AddTask(boost::bind(&InsNodeImpl::BroadCastHeartBeat, this));
   StartReplicateLog();
 }
@@ -565,9 +582,12 @@ void InsNodeImpl::TransToLeader() {
 void InsNodeImpl::VoteCallback(const ::galaxy::ins::VoteRequest* request,
                                ::galaxy::ins::VoteResponse* response,
                                bool failed, int /*error*/) {
+  LOG(INFO, "recv VoteCallback: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
-  boost::scoped_ptr<const galaxy::ins::VoteRequest> request_ptr(request);
-  boost::scoped_ptr<galaxy::ins::VoteResponse> response_ptr(response);
+  std::unique_ptr<const galaxy::ins::VoteRequest> request_ptr(request);
+  std::unique_ptr<galaxy::ins::VoteResponse> response_ptr(response);
   if (!failed && status_ == kCandidate) {
     int64_t their_term = response_ptr->term();
     LOG(INFO, "InsNodeImpl::VoteCallback[%ld], result:%s", their_term,
@@ -616,27 +636,27 @@ void InsNodeImpl::TryToBeLeader() {
   voted_for_[current_term_] = self_id_;
   meta_->WriteVotedFor(current_term_, self_id_);
   vote_grant_[current_term_]++;
-  std::vector<std::string>::iterator it = members_.begin();
   int64_t last_log_index;
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
-  LOG(INFO, "broad cast vote request to cluster, new term: %ld", current_term_);
-  for (; it != members_.end(); it++) {
-    if (*it == self_id_) {
-      continue;
-    }
+  LOG(INFO, "Broadcast vote request to cluster, new term: %ld", current_term_);
+  for (auto it = others_.begin(); it != others_.end(); it++) {
     InsNode_Stub* stub;
     rpc_client_.GetStub(*it, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
-    ::galaxy::ins::VoteRequest* request = new ::galaxy::ins::VoteRequest();
-    ::galaxy::ins::VoteResponse* response = new ::galaxy::ins::VoteResponse();
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    auto request = new ::galaxy::ins::VoteRequest();
+    auto response = new ::galaxy::ins::VoteResponse();
     request->set_candidate_id(self_id_);
     request->set_term(current_term_);
     request->set_last_log_index(last_log_index);
     request->set_last_log_term(last_log_term);
+    LOG(INFO,
+        "Send VoteRequest to %s, candidate_id: %s, current_term: %ld, "
+        "last_log_index: %ld, last_log_term: %ld",
+        it->c_str(), self_id_.c_str(), current_term_, last_log_index,
+        last_log_term);
     boost::function<void(const ::galaxy::ins::VoteRequest*,
-                         ::galaxy::ins::VoteResponse*, bool, int)>
-        callback;
+                         ::galaxy::ins::VoteResponse*, bool, int)> callback;
     callback = boost::bind(&InsNodeImpl::VoteCallback, this, _1, _2, _3, _4);
     rpc_client_.AsyncRequest(stub, &InsNode_Stub::Vote, request, response,
                              callback, 2, 1);
@@ -702,7 +722,7 @@ void InsNodeImpl::DoAppendEntries(
         response->set_success(false);
         response->set_log_length(binlogger_->GetLength());
         response->set_is_busy(true);
-        LOG(INFO, "[AppendEntries] speed to fast, %ld > %ld",
+        LOG(INFO, "[AppendEntries] speed too fast, %ld > %ld",
             request->prev_log_index(), last_applied_index_);
         done->Run();
         return;
@@ -711,8 +731,7 @@ void InsNodeImpl::DoAppendEntries(
         int64_t old_length = binlogger_->GetLength();
         binlogger_->Truncate(request->prev_log_index());
         LOG(INFO,
-            "[AppendEntries] log length alignment, "
-            "length: %ld,%ld",
+            "[AppendEntries] log length alignment, truncate from: %ld to %ld",
             old_length, request->prev_log_index());
       }
       mu_.Unlock();
@@ -725,7 +744,7 @@ void InsNodeImpl::DoAppendEntries(
 
     if (commit_index_ > old_commit_index) {
       commit_cond_->Signal();
-      LOG(DEBUG, "follower: update my commit index to :%ld", commit_index_);
+      LOG(DEBUG, "follower: update my commit index to: %ld", commit_index_);
     }
     response->set_current_term(current_term_);
     response->set_success(true);
@@ -796,10 +815,9 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* /*controller*/,
 
 void InsNodeImpl::UpdateCommitIndex(int64_t a_index) {
   mu_.AssertHeld();
-  std::vector<std::string>::const_iterator it;
   uint32_t match_count = 0;
-  for (it = members_.begin(); it != members_.end(); it++) {
-    std::string server_id = *it;
+  for (auto it = members_.begin(); it != members_.end(); it++) {
+    std::string &server_id = *it;
     if (match_index_[server_id] >= a_index) {
       match_count += 1;
     }
@@ -841,7 +859,7 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
     if (!latest_replicating_ok) {
       batch_span = std::min(1L, batch_span);
     }
-    std::string leader_id = self_id_;
+    std::string &leader_id = self_id_;
     LogEntry prev_log_entry;
     if (prev_index > -1) {
       bool slot_ok = binlogger_->ReadSlot(prev_index, &prev_log_entry);
@@ -857,7 +875,7 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
     InsNode_Stub* stub;
     int64_t max_term = -1;
     rpc_client_.GetStub(follower_id, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::AppendEntriesRequest request;
     galaxy::ins::AppendEntriesResponse response;
     request.set_term(cur_term);
@@ -976,35 +994,31 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
   }
 
   int64_t now_timestamp = ins_common::timer::get_micros();
-  if (members_.size() > 1 &&
-      (now_timestamp - heartbeat_read_timestamp_) >
-          1000 * FLAGS_elect_timeout_min) {
+  if (members_.size() > 1 && (now_timestamp - heartbeat_read_timestamp_) >
+                                 1000 * FLAGS_elect_timeout_min) {
     LOG(DEBUG, "broadcast for read");
     ClientReadAck::Ptr context(new ClientReadAck());
     context->request = request;
     context->response = response;
     context->done = done;
     context->succ_count = 1;  // self Get success;
-    std::vector<std::string>::iterator it = members_.begin();
-    boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
-                         ::galaxy::ins::AppendEntriesResponse*, bool, int)>
-        callback;
-    callback = boost::bind(&InsNodeImpl::HeartBeatForReadCallback, this, _1, _2,
-                           _3, _4, context);
-    for (; it != members_.end(); it++) {  // make sure I am still leader
-      if (*it == self_id_) {
-        continue;
-      }
+    for (auto it = others_.begin(); it != others_.end(); it++) {
       InsNode_Stub* stub;
       rpc_client_.GetStub(*it, &stub);
-      boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
-      ::galaxy::ins::AppendEntriesRequest* request =
-          new ::galaxy::ins::AppendEntriesRequest();
-      ::galaxy::ins::AppendEntriesResponse* response =
-          new ::galaxy::ins::AppendEntriesResponse();
+      std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+      auto request = new ::galaxy::ins::AppendEntriesRequest();
+      auto response = new ::galaxy::ins::AppendEntriesResponse();
       request->set_term(current_term_);
       request->set_leader_id(self_id_);
       request->set_leader_commit_index(commit_index_);
+      LOG(INFO,
+          "Send AppendEntriesRequest to %s, current_term: %ld, self: %s, "
+          "commit_index: %ld",
+          it->c_str(), current_term_, self_id_.c_str(), commit_index_);
+      boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
+                           ::galaxy::ins::AppendEntriesResponse*, bool, int)>
+          callback = boost::bind(&InsNodeImpl::HeartBeatForReadCallback, this,
+                                 _1, _2, _3, _4, context);
       rpc_client_.AsyncRequest(stub, &InsNode_Stub::AppendEntries, request,
                                response, callback, 2, 1);
     }
@@ -1168,7 +1182,7 @@ bool InsNodeImpl::LockIsAvailable(const std::string& user,
   if (s != kOk) {
     MutexLock lock(&sessions_mu_);
     SessionIDIndex& id_index = sessions_.get<0>();
-    SessionIDIndex::iterator self_it = id_index.find(session_id);
+    auto self_it = id_index.find(session_id);
     if (self_it != sessions_.end()) {
       lock_is_available = true;
     }
@@ -1178,8 +1192,8 @@ bool InsNodeImpl::LockIsAvailable(const std::string& user,
     } else {
       MutexLock lock(&sessions_mu_);
       SessionIDIndex& id_index = sessions_.get<0>();
-      SessionIDIndex::iterator old_it = id_index.find(old_locker_session);
-      SessionIDIndex::iterator self_it = id_index.find(session_id);
+      auto old_it = id_index.find(old_locker_session);
+      auto self_it = id_index.find(session_id);
       if (old_it == sessions_.end()  // expired session
           && self_it != sessions_.end()) {
         lock_is_available = true;
@@ -1409,7 +1423,7 @@ void InsNodeImpl::KeepAlive(::google::protobuf::RpcController* controller,
   {
     MutexLock lock(&sessions_mu_);
     SessionIDIndex& id_index = sessions_.get<0>();
-    SessionIDIndex::iterator it = id_index.find(session.session_id);
+    auto it = id_index.find(session.session_id);
     if (it == sessions_.end()) {
       id_index.insert(session);
     } else {
@@ -1434,29 +1448,18 @@ void InsNodeImpl::KeepAlive(::google::protobuf::RpcController* controller,
 void InsNodeImpl::ForwardKeepAlive(
     const ::galaxy::ins::KeepAliveRequest* request,
     ::galaxy::ins::KeepAliveResponse* response) {
-  std::vector<std::string> followers;
   {
     MutexLock lock(&mu_);
     if (status_ != kLeader) {
       return;
     }
-    std::vector<std::string>::iterator it = members_.begin();
-    for (; it != members_.end(); it++) {
-      if (*it == self_id_) {
-        continue;
-      }
-      followers.push_back(*it);
-    }
   }
-  std::vector<std::string>::iterator it;
-  for (it = followers.begin(); it != followers.end(); it++) {
+  for (auto it = others_.begin(); it != others_.end(); it++) {
     InsNode_Stub* stub;
     rpc_client_.GetStub(*it, &stub);
-    boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
-    ::galaxy::ins::KeepAliveRequest* forward_request =
-        new ::galaxy::ins::KeepAliveRequest();
-    ::galaxy::ins::KeepAliveResponse* forward_response =
-        new ::galaxy::ins::KeepAliveResponse();
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    auto forward_request = new ::galaxy::ins::KeepAliveRequest();
+    auto forward_response = new ::galaxy::ins::KeepAliveResponse();
     forward_request->CopyFrom(*request);
     forward_response->CopyFrom(*response);
     forward_request->set_forward_from_leader(true);
@@ -1488,13 +1491,11 @@ void InsNodeImpl::RemoveExpiredSessions() {
     MutexLock lock_session(&sessions_mu_);
     SessionTimeIndex& time_index = sessions_.get<1>();
     if (!sessions_.empty()) {
-      int64_t expired_line =
-          ins_common::timer::get_micros() - FLAGS_session_expire_timeout;
-      SessionTimeIndex::iterator it = time_index.lower_bound(expired_line);
+      int64_t expired_line = ins_common::timer::get_micros() - FLAGS_session_expire_timeout;
+      auto it = time_index.lower_bound(expired_line);
       if (it != time_index.begin()) {
         LOG(INFO, "remove expired session");
-        for (SessionTimeIndex::iterator dd = time_index.begin(); dd != it;
-             dd++) {
+        for (auto dd = time_index.begin(); dd != it; dd++) {
           expired_sessions.push_back(*dd);
           LOG(INFO, "remove session_id %s", dd->session_id.c_str());
         }
@@ -1505,8 +1506,7 @@ void InsNodeImpl::RemoveExpiredSessions() {
 
   {
     MutexLock lock_watch(&watch_mu_);
-    std::vector<Session>::iterator it = expired_sessions.begin();
-    for (; it != expired_sessions.end(); it++) {
+    for (auto it = expired_sessions.begin(); it != expired_sessions.end(); it++) {
       RemoveEventBySession(it->session_id);
     }
   }
@@ -1515,14 +1515,12 @@ void InsNodeImpl::RemoveExpiredSessions() {
 
   {
     MutexLock lock_sk(&session_locks_mu_);
-    std::vector<Session>::iterator it = expired_sessions.begin();
-    for (; it != expired_sessions.end(); it++) {
+    for (auto it = expired_sessions.begin(); it != expired_sessions.end(); it++) {
       const std::string& session_id = it->session_id;
       const std::string& uuid = it->uuid;
       if (session_locks_.find(session_id) != session_locks_.end()) {
         std::set<std::string>& keys = session_locks_[session_id];
-        std::set<std::string>::iterator jt = keys.begin();
-        for (; jt != keys.end(); jt++) {
+        for (auto jt = keys.begin(); jt != keys.end(); jt++) {
           unlock_keys.push_back(std::make_pair(*jt, Session(session_id, uuid)));
         }
         session_locks_.erase(session_id);
@@ -1543,8 +1541,7 @@ void InsNodeImpl::RemoveExpiredSessions() {
       log_entry.op = kUnLock;
       binlogger_->AppendEntry(log_entry);
     }
-    for (std::vector<Session>::iterator it = expired_sessions.begin();
-         it != expired_sessions.end(); ++it) {
+    for (auto it = expired_sessions.begin(); it != expired_sessions.end(); ++it) {
       const std::string& uuid = it->uuid;
       if (!uuid.empty()) {
         LogEntry log_entry;
@@ -1576,7 +1573,7 @@ bool InsNodeImpl::IsExpiredSession(const std::string& session_id) {
   {
     MutexLock lock(&sessions_mu_);
     SessionIDIndex& id_index = sessions_.get<0>();
-    SessionIDIndex::iterator old_it = id_index.find(session_id);
+    auto old_it = id_index.find(session_id);
     if (old_it == sessions_.end()) {
       expired_session = true;
     }
@@ -1633,11 +1630,11 @@ bool InsNodeImpl::TriggerEvent(const std::string& watch_key,
                                bool deleted) {
   MutexLock lock(&watch_mu_);
   WatchEventKeyIndex& key_idx = watch_events_.get<0>();
-  WatchEventKeyIndex::iterator it_start = key_idx.lower_bound(watch_key);
+  auto it_start = key_idx.lower_bound(watch_key);
   if (it_start != key_idx.end() && it_start->key == watch_key) {
-    WatchEventKeyIndex::iterator it_end = key_idx.upper_bound(watch_key);
+    auto it_end = key_idx.upper_bound(watch_key);
     int event_count = 0;
-    for (WatchEventKeyIndex::iterator it = it_start; it != it_end; it++) {
+    for (auto it = it_start; it != it_end; it++) {
       it->ack->response->set_watch_key(GetKeyFromEvent(watch_key));
       it->ack->response->set_key(GetKeyFromEvent(key));
       it->ack->response->set_value(value);
@@ -1659,12 +1656,10 @@ void InsNodeImpl::RemoveEventBySessionAndKey(const std::string& session_id,
                                              const std::string& key) {
   watch_mu_.AssertHeld();
   WatchEventSessionIndex& session_idx = watch_events_.get<1>();
-  WatchEventSessionIndex::iterator it_start =
-      session_idx.lower_bound(session_id);
+  auto it_start = session_idx.lower_bound(session_id);
   if (it_start != session_idx.end() && it_start->session_id == session_id) {
-    WatchEventSessionIndex::iterator it_end =
-        session_idx.upper_bound(session_id);
-    for (WatchEventSessionIndex::iterator it = it_start; it != it_end;) {
+    auto it_end = session_idx.upper_bound(session_id);
+    for (auto it = it_start; it != it_end;) {
       if (it->key == key) {
         LOG(DEBUG, "remove watch event: %s on %s", it->key.c_str(),
             it->session_id.c_str());
@@ -1683,12 +1678,10 @@ void InsNodeImpl::TriggerEventBySessionAndKey(const std::string& session_id,
                                               bool deleted) {
   MutexLock lock(&watch_mu_);
   WatchEventSessionIndex& session_idx = watch_events_.get<1>();
-  WatchEventSessionIndex::iterator it_start =
-      session_idx.lower_bound(session_id);
+  auto it_start = session_idx.lower_bound(session_id);
   if (it_start != session_idx.end() && it_start->session_id == session_id) {
-    WatchEventSessionIndex::iterator it_end =
-        session_idx.upper_bound(session_id);
-    for (WatchEventSessionIndex::iterator it = it_start; it != it_end;) {
+    auto it_end = session_idx.upper_bound(session_id);
+    for (auto it = it_start; it != it_end;) {
       if (it->key == key) {
         LOG(INFO, "trigger watch event: %s on %s", it->key.c_str(),
             it->session_id.c_str());
@@ -1709,12 +1702,10 @@ void InsNodeImpl::TriggerEventBySessionAndKey(const std::string& session_id,
 void InsNodeImpl::RemoveEventBySession(const std::string& session_id) {
   watch_mu_.AssertHeld();
   WatchEventSessionIndex& session_idx = watch_events_.get<1>();
-  WatchEventSessionIndex::iterator it_start =
-      session_idx.lower_bound(session_id);
+  auto it_start = session_idx.lower_bound(session_id);
   if (it_start != session_idx.end() && it_start->session_id == session_id) {
-    WatchEventSessionIndex::iterator it_end =
-        session_idx.upper_bound(session_id);
-    for (WatchEventSessionIndex::iterator it = it_start; it != it_end; it++) {
+    auto it_end = session_idx.upper_bound(session_id);
+    for (auto it = it_start; it != it_end; it++) {
       LOG(DEBUG, "remove watch event: %s on %s", it->key.c_str(),
           it->session_id.c_str());
     }
@@ -1945,9 +1936,7 @@ void InsNodeImpl::Register(::google::protobuf::RpcController* /*controller*/,
     response->set_leader_id(current_leader_);
     done->Run();
     return;
-  }
-
-  if (status_ == kCandidate) {
+  } else if (status_ == kCandidate) {
     response->set_status(kError);
     response->set_leader_id("");
     done->Run();
@@ -2013,7 +2002,7 @@ void InsNodeImpl::RpcStat(::google::protobuf::RpcController* /*controller*/,
     stats.resize(request->op_size());
     std::copy(request->op().begin(), request->op().end(), stats.begin());
   }
-  for (std::vector<int>::iterator it = stats.begin(); it != stats.end(); ++it) {
+  for (auto it = stats.begin(); it != stats.end(); ++it) {
     int64_t current_stat = 0l;
     int64_t average_stat = 0l;
     switch (StatOperation(*it)) {
@@ -2074,12 +2063,11 @@ void InsNodeImpl::GarbageClean() {
   if (is_leader) {
     int64_t min_applied_index = std::numeric_limits<int64_t>::max();
     bool ret_all = true;
-    std::vector<std::string>::iterator it;
-    for (it = all_members.begin(); it != all_members.end(); it++) {
+    for (auto it = all_members.begin(); it != all_members.end(); it++) {
       galaxy::ins::InsNode_Stub* stub;
-      std::string server_id = *it;
+      std::string &server_id = *it;
       rpc_client_.GetStub(server_id, &stub);
-      boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+      std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
       ::galaxy::ins::ShowStatusRequest request;
       ::galaxy::ins::ShowStatusResponse response;
       bool ok = rpc_client_.SendRequest(stub, &InsNode_Stub::ShowStatus,
@@ -2103,11 +2091,11 @@ void InsNodeImpl::GarbageClean() {
       }
       if (old_index != safe_clean_index) {
         LOG(INFO, "[gc] safe clean index is : %ld", safe_clean_index);
-        for (it = all_members.begin(); it != all_members.end(); it++) {
+        for (auto it = all_members.begin(); it != all_members.end(); it++) {
           galaxy::ins::InsNode_Stub* stub;
-          std::string server_id = *it;
+          std::string &server_id = *it;
           rpc_client_.GetStub(server_id, &stub);
-          boost::scoped_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+          std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
           ::galaxy::ins::CleanBinlogRequest request;
           ::galaxy::ins::CleanBinlogResponse response;
           request.set_end_index(safe_clean_index);

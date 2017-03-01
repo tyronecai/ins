@@ -28,7 +28,7 @@
 
 namespace ins_common {
 
-int g_log_level = INFO;
+int g_log_level = DEBUG;
 int64_t g_log_size = 0;
 int32_t g_log_count = 0;
 FILE* g_log_file = stdout;

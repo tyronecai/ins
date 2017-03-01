@@ -9,3 +9,6 @@ ins_cli
 output/*
 sandbox/data/
 ins.flag
+logs
+depends
+

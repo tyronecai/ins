@@ -26,11 +26,14 @@ Meta::Meta(const std::string& data_dir)
     LOG(FATAL, "failed to create dir :%s", data_dir.c_str());
     abort();
   }
+  LOG(INFO, "open %s for term file", (data_dir + "/" + term_file_name).c_str());
   term_file_ = fopen((data_dir + "/" + term_file_name).c_str(), "a+");
+  LOG(INFO, "open %s for vote file", (data_dir + "/" + vote_file_name).c_str());
   vote_file_ = fopen((data_dir + "/" + vote_file_name).c_str(), "a+");
+  LOG(INFO, "open %s for root file", (data_dir + "/" + root_file_name).c_str());
   root_file_ = fopen((data_dir + "/" + root_file_name).c_str(), "r+");
-  assert(term_file_);
-  assert(vote_file_);
+  assert(term_file_ != NULL);
+  assert(vote_file_ != NULL);
   if (root_file_ == NULL) {
     root_file_ = fopen((data_dir + "/" + root_file_name).c_str(), "w+");
     assert(root_file_);
@@ -48,6 +51,7 @@ int64_t Meta::ReadCurrentTerm() {
   while (fscanf(term_file_, "%ld", &tmp) == 1) {
     cur_term = tmp;
   }
+  LOG(INFO, "got %ld for current term", cur_term);
   return cur_term;
 }
 
@@ -62,6 +66,7 @@ void Meta::ReadVotedFor(std::map<int64_t, std::string>& voted_for) {
     last_vote_for = server_id;
   }
   if (!last_vote_for.empty()) {
+    LOG(INFO, "got %ld %s for last term", last_term, last_vote_for.c_str());
     voted_for[last_term] = std::string(last_vote_for);
   }
 }
@@ -76,6 +81,7 @@ UserInfo Meta::ReadRootInfo() {
     *p++ = 0;
     root.set_username(buf);
     root.set_passwd(p);
+    LOG(INFO, "got %s %s for root", buf, p);
   }
   return root;
 }

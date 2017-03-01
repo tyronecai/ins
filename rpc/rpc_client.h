@@ -8,7 +8,6 @@
 #define RPC_CLIENT_H_
 
 #include <sofa/pbrpc/pbrpc.h>
-#include <boost/bind.hpp>
 #include <boost/function.hpp>
 #include "common/logging.h"
 #include "common/mutex.h"
@@ -73,8 +72,7 @@ class RpcClient {
   }
   template <class Stub, class Request, class Response, class Callback>
   void AsyncRequest(
-      Stub* stub, void (Stub::*func)(google::protobuf::RpcController*,
-                                     const Request*, Response*, Callback*),
+      Stub* stub, void (Stub::*func)(google::protobuf::RpcController*, const Request*, Response*, Callback*),
       const Request* request, Response* response,
       boost::function<void(const Request*, Response*, bool, int)> callback,
       int32_t rpc_timeout, int retry_times) {
