@@ -1,6 +1,4 @@
 #include "server/performance_center.h"
-
-#include <boost/bind.hpp>
 #include "gflags/gflags.h"
 
 DECLARE_int32(performance_interval);
@@ -18,7 +16,7 @@ PerformanceCenter::PerformanceCenter(int buffer_size)
       unlock_buffer_(buffer_size),
       watch_buffer_(buffer_size),
       ticktock_(1) {
-  ticktock_.AddTask(boost::bind(&PerformanceCenter::TickTock, this));
+  ticktock_.AddTask(std::bind(&PerformanceCenter::TickTock, this));
 }
 
 int64_t PerformanceCenter::CalcAverageOfBuffer(
@@ -80,7 +78,7 @@ void PerformanceCenter::TickTock() {
   lock_.Unlock();
 
   ticktock_.DelayTask(FLAGS_performance_interval,
-                      boost::bind(&PerformanceCenter::TickTock, this));
+                      std::bind(&PerformanceCenter::TickTock, this));
 }
 }
 }

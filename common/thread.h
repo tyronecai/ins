@@ -8,14 +8,13 @@
 #define COMMON_THREAD_H_
 
 #include <pthread.h>
-
-#include <boost/function.hpp>
+#include <functional>
 
 namespace ins_common {
 
 class Thread {
  public:
-  bool Start(boost::function<void()> thread_proc) {
+  bool Start(std::function<void()> thread_proc) {
     user_proc_ = thread_proc;
     int ret = pthread_create(&tid_, NULL, ProcWrapper, this);
     return (ret == 0);
@@ -32,7 +31,7 @@ class Thread {
   }
 
  private:
-  boost::function<void()> user_proc_;
+  std::function<void()> user_proc_;
   pthread_t tid_;
 };
 

@@ -17,7 +17,6 @@
 #include <sys/types.h>
 #include <syscall.h>
 #include <unistd.h>
-#include <boost/bind.hpp>
 #include <queue>
 #include <set>
 #include <string>
@@ -94,7 +93,7 @@ class AsyncLogger {
   AsyncLogger() : jobs_(&mu_), done_(&mu_), stopped_(false), size_(0) {
     buffer_queue_ = new std::queue<std::pair<int, std::string*> >;
     bg_queue_ = new std::queue<std::pair<int, std::string*> >;
-    thread_.Start(boost::bind(&AsyncLogger::AsyncWriter, this));
+    thread_.Start(std::bind(&AsyncLogger::AsyncWriter, this));
   }
   ~AsyncLogger() {
     stopped_ = true;

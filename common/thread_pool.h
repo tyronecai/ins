@@ -7,7 +7,7 @@
 #ifndef COMMON_THREAD_POOL_H_
 #define COMMON_THREAD_POOL_H_
 
-#include <boost/function.hpp>
+#include <functional>
 #include <deque>
 #include <map>
 #include <queue>
@@ -70,7 +70,7 @@ class ThreadPool {
   }
 
   // Task definition.
-  typedef boost::function<void()> Task;
+  typedef std::function<void()> Task;
 
   // Add a task to the thread pool.
   void AddTask(const Task& task) {

@@ -572,7 +572,7 @@ bool InsSDK::Watch(const std::string& key, WatchCallback user_callback,
     watch_id = (++watch_task_id_);
     pending_watches_.insert(watch_id);
     if (!is_keep_alive_bg_) {
-      keep_alive_pool_->AddTask(boost::bind(&InsSDK::KeepAliveTask, this));
+      keep_alive_pool_->AddTask(std::bind(&InsSDK::KeepAliveTask, this));
       is_keep_alive_bg_ = true;
     }
     cur_session_id = session_id_;
@@ -670,7 +670,7 @@ void InsSDK::KeepAliveTask() {
     LOG(INFO, "create a new session: %s", GetSessionID().c_str());
   }
 
-  keep_alive_pool_->DelayTask(2000, boost::bind(&InsSDK::KeepAliveTask, this));
+  keep_alive_pool_->DelayTask(2000, std::bind(&InsSDK::KeepAliveTask, this));
 }
 
 void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
@@ -804,7 +804,7 @@ void InsSDK::KeepWatchTask(const std::string& key, const std::string& old_value,
 
   keep_watch_pool_->DelayTask(
       FLAGS_ins_backup_watch_timeout * 1000,  // ms
-      boost::bind(&InsSDK::BackupWatchTask, this, key, old_value, key_exist,
+      std::bind(&InsSDK::BackupWatchTask, this, key, old_value, key_exist,
                   session_id, watch_id));
   std::vector<std::string> server_list;
   PrepareServerList(server_list);
@@ -837,7 +837,7 @@ bool InsSDK::Lock(const std::string& key, SDKError* error) {
   {
     MutexLock lock(mu_);
     if (!is_keep_alive_bg_) {
-      keep_alive_pool_->AddTask(boost::bind(&InsSDK::KeepAliveTask, this));
+      keep_alive_pool_->AddTask(std::bind(&InsSDK::KeepAliveTask, this));
       is_keep_alive_bg_ = true;
     }
   }
@@ -866,7 +866,7 @@ bool InsSDK::TryLock(const std::string& key, SDKError* error) {
   {
     MutexLock lock(mu_);
     if (!is_keep_alive_bg_) {
-      keep_alive_pool_->AddTask(boost::bind(&InsSDK::KeepAliveTask, this));
+      keep_alive_pool_->AddTask(std::bind(&InsSDK::KeepAliveTask, this));
       is_keep_alive_bg_ = true;
     }
   }
@@ -1039,7 +1039,7 @@ bool InsSDK::Login(const std::string& username, const std::string& password,
       return false;
     }
     if (!is_keep_alive_bg_) {
-      keep_alive_pool_->AddTask(boost::bind(&InsSDK::KeepAliveTask, this));
+      keep_alive_pool_->AddTask(std::bind(&InsSDK::KeepAliveTask, this));
       is_keep_alive_bg_ = true;
     }
   }

@@ -19,8 +19,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <boost/bind.hpp>
-#include <boost/function.hpp>
 #include <string>
 #include <vector>
 #include "logging.h"
@@ -50,7 +48,7 @@ class HttpFileServer {
   void Start(int thread_num) {
     assert(thread_num > 0);
     pool_ = new ThreadPool(thread_num + 1);
-    pool_->AddTask(boost::bind(&HttpFileServer::Run, this));
+    pool_->AddTask(std::bind(&HttpFileServer::Run, this));
   }
 
   int Run() {
@@ -96,7 +94,7 @@ class HttpFileServer {
         LOG(WARNING, "invalid client fd:%d", client_fd);
         continue;
       }
-      pool_->AddTask(boost::bind(&HttpFileServer::HandleClient, this,
+      pool_->AddTask(std::bind(&HttpFileServer::HandleClient, this,
                                  client_addr, client_fd));
     }
     return 0;

@@ -94,6 +94,7 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
     LOG(INFO, "we in cluster mode with %d nodes", members_.size());
   }
 
+  // open data storage
   std::string sub_dir = self_id_;
   boost::replace_all(sub_dir, ":", "_");
   meta_ = new Meta(FLAGS_ins_data_dir + "/" + sub_dir);
@@ -115,13 +116,13 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
     last_applied_index_ = BinLogger::StringToInt(tag_value);
   }
   server_start_timestamp_ = ins_common::timer::get_micros();
-  committer_.AddTask(boost::bind(&InsNodeImpl::CommitIndexObserv, this));
+  committer_.AddTask(std::bind(&InsNodeImpl::CommitIndexObserv, this));
 
   MutexLock lock(&mu_);
   CheckLeaderCrash();
   session_checker_.AddTask(
-      boost::bind(&InsNodeImpl::RemoveExpiredSessions, this));
-  binlog_cleaner_.AddTask(boost::bind(&InsNodeImpl::GarbageClean, this));
+      std::bind(&InsNodeImpl::RemoveExpiredSessions, this));
+  binlog_cleaner_.AddTask(std::bind(&InsNodeImpl::GarbageClean, this));
 }
 
 InsNodeImpl::~InsNodeImpl() {
@@ -161,7 +162,7 @@ void InsNodeImpl::CheckLeaderCrash() {
   }
   int32_t timeout = GetRandomTimeout();
   elect_leader_task_ = leader_crash_checker_.DelayTask(
-      timeout, boost::bind(&InsNodeImpl::TryToBeLeader, this));
+      timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
 }
 
 void InsNodeImpl::ShowStatus(
@@ -252,7 +253,7 @@ void InsNodeImpl::CommitIndexObserv() {
                            "lock");
           }
           event_trigger_.AddTask(
-              boost::bind(&InsNodeImpl::TriggerEventWithParent, this,
+              std::bind(&InsNodeImpl::TriggerEventWithParent, this,
                           BindKeyAndUser(log_entry.user, log_entry.key),
                           log_entry.value, false));
           if (log_entry.op == kLock) {
@@ -271,7 +272,7 @@ void InsNodeImpl::CommitIndexObserv() {
           }
           assert(s == kOk);
           event_trigger_.AddTask(
-              boost::bind(&InsNodeImpl::TriggerEventWithParent, this,
+              std::bind(&InsNodeImpl::TriggerEventWithParent, this,
                           BindKeyAndUser(log_entry.user, log_entry.key),
                           log_entry.value, true));
           break;
@@ -308,7 +309,7 @@ void InsNodeImpl::CommitIndexObserv() {
               LOG(INFO, "unlock on %s", key.c_str());
               TouchParentKey(log_entry.user, log_entry.key, cur_session,
                              "unlock");
-              event_trigger_.AddTask(boost::bind(
+              event_trigger_.AddTask(std::bind(
                   &InsNodeImpl::TriggerEventWithParent, this,
                   BindKeyAndUser(log_entry.user, key), old_session, true));
             }
@@ -545,7 +546,7 @@ void InsNodeImpl::BroadCastHeartBeat() {
                              response, callback, 2, 1);
   }
   heart_beat_pool_.DelayTask(
-      50, boost::bind(&InsNodeImpl::BroadCastHeartBeat, this));
+      50, std::bind(&InsNodeImpl::BroadCastHeartBeat, this));
 }
 
 void InsNodeImpl::StartReplicateLog() {
@@ -559,7 +560,7 @@ void InsNodeImpl::StartReplicateLog() {
     std::string &follower_id = *it;
     next_index_[follower_id] = binlogger_->GetLength();
     match_index_[follower_id] = -1;
-    replicatter_.AddTask(boost::bind(&InsNodeImpl::ReplicateLog, this, *it));
+    replicatter_.AddTask(std::bind(&InsNodeImpl::ReplicateLog, this, *it));
   }
   LogEntry log_entry;
   log_entry.key = "Ping";
@@ -575,7 +576,7 @@ void InsNodeImpl::TransToLeader() {
   status_ = kLeader;
   current_leader_ = self_id_;
   LOG(INFO, "I win the election, term: %ld", current_term_);
-  heart_beat_pool_.AddTask(boost::bind(&InsNodeImpl::BroadCastHeartBeat, this));
+  heart_beat_pool_.AddTask(std::bind(&InsNodeImpl::BroadCastHeartBeat, this));
   StartReplicateLog();
 }
 
@@ -672,6 +673,7 @@ void InsNodeImpl::DoAppendEntries(
   if (request->term() >= current_term_) {
     status_ = kFollower;
     if (request->term() > current_term_) {
+      LOG(INFO, "Update current term from %ld to %ld", current_term_, request->term());
       meta_->WriteCurrentTerm(request->term());
     }
     current_term_ = request->term();
@@ -762,7 +764,7 @@ void InsNodeImpl::AppendEntries(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response,
     ::google::protobuf::Closure* done) {
-  follower_worker_.AddTask(boost::bind(&InsNodeImpl::DoAppendEntries, this,
+  follower_worker_.AddTask(std::bind(&InsNodeImpl::DoAppendEntries, this,
                                        request, response, done));
   return;
 }
@@ -1557,7 +1559,7 @@ void InsNodeImpl::RemoveExpiredSessions() {
     }
   }
   session_checker_.DelayTask(
-      2000, boost::bind(&InsNodeImpl::RemoveExpiredSessions, this));
+      2000, std::bind(&InsNodeImpl::RemoveExpiredSessions, this));
 }
 
 void InsNodeImpl::ParseValue(const std::string& value, LogOperation& op,
@@ -1619,7 +1621,7 @@ void InsNodeImpl::TriggerEventWithParent(const std::string& key,
     bool triggered = TriggerEvent(parent_key, key, value, deleted);
     if (!triggered) {
       event_trigger_.DelayTask(
-          2000, boost::bind(&InsNodeImpl::TriggerEvent, this, parent_key, key,
+          2000, std::bind(&InsNodeImpl::TriggerEvent, this, parent_key, key,
                             value, deleted));
     }
   }
@@ -1984,7 +1986,7 @@ void InsNodeImpl::CleanBinlog(::google::protobuf::RpcController* /*controller*/,
     }
   }
   binlog_cleaner_.AddTask(
-      boost::bind(&InsNodeImpl::DelBinlog, this, del_end_index - 1));
+      std::bind(&InsNodeImpl::DelBinlog, this, del_end_index - 1));
   response->set_success(true);
   done->Run();
 }
@@ -2111,7 +2113,7 @@ void InsNodeImpl::GarbageClean() {
   }    // end-if, this node is leader
 
   binlog_cleaner_.DelayTask(FLAGS_ins_gc_interval * 1000,
-                            boost::bind(&InsNodeImpl::GarbageClean, this));
+                            std::bind(&InsNodeImpl::GarbageClean, this));
 }
 
 void InsNodeImpl::SampleAccessLog(
