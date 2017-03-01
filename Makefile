@@ -5,7 +5,7 @@ OPT ?= -std=c++11 -g2 -Wall -fPIC         # (B) Debug mode, w/ full line-level d
 # Thirdparty
 DEPENDS=depends
 PROTOC=$(DEPENDS)/bin/protoc
-BOOST_PATH ?=$(DEPENDS)/boost_1_63_0
+BOOST_PATH ?=$(DEPENDS)/boost_1_61_0
 NEXUS_LDB_PATH=./thirdparty/leveldb
 PREFIX=/usr/local
 

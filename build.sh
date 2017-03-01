@@ -25,8 +25,7 @@ rm -rf ../gflags-2.2.0 ../v2.2.0.tar.gz
 
 cd $base_dir/thirdparty
 wget -c http://d3dr9sfxru4sde.cloudfront.net/boost_1_61_0.tar.gz
-tar xf boost_1_61_0.tar.gz -C ${base_dir}/depends
-rm -rf ../boost_1_61_0.tar.gz
+tar xf boost_1_61_0.tar.gz -C ${base_dir}/depends && rm -rf boost_1_61_0.tar.gz
 
 cd $base_dir/thirdparty
 git clone https://github.com/baidu/sofa-pbrpc.git sofa-pbrpc
