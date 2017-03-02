@@ -110,8 +110,10 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
     return true;
   } else if (status.IsNotFound()) {
     return false;
+  } else {
+    LOG(ERROR, "Read slot fail");
+    abort();
   }
-  abort();
 }
 
 void BinLogger::AppendEntryList(

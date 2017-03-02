@@ -216,7 +216,7 @@ void InsNodeImpl::CommitIndexObserv() {
     bool nop_committed = false;
     mu_.Unlock();
 
-    LOG(INFO, "wait back, process index: %ld to %ld", from_idx, to_idx);
+    LOG(INFO, "wait back, begin to process index from %ld to %ld", from_idx, to_idx);
     for (int64_t i = from_idx + 1; i <= to_idx; i++) {
       LogEntry log_entry;
       bool slot_ok = binlogger_->ReadSlot(i, &log_entry);
