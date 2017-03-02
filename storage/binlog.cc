@@ -12,6 +12,61 @@ namespace ins {
 const std::string log_dbname = "#binlog";
 const std::string length_tag = "#BINLOG_LEN#";
 
+int32_t LogEntry::Dump(std::string* buf) const {
+  assert(buf);
+  int32_t total_len = sizeof(uint8_t) + sizeof(int32_t) + user.size() +
+                      sizeof(int32_t) + key.size() + sizeof(int32_t) +
+                      value.size() + sizeof(int64_t);
+  buf->resize(total_len);
+  int32_t user_size = user.size();
+  int32_t key_size = key.size();
+  int32_t value_size = value.size();
+  char* p = reinterpret_cast<char*>(&((*buf)[0]));
+  p[0] = static_cast<uint8_t>(op);
+  p += sizeof(uint8_t);
+  memcpy(p, static_cast<const void*>(&user_size), sizeof(int32_t));
+  p += sizeof(int32_t);
+  memcpy(p, static_cast<const void*>(user.data()), user.size());
+  p += user.size();
+  memcpy(p, static_cast<const void*>(&key_size), sizeof(int32_t));
+  p += sizeof(int32_t);
+  memcpy(p, static_cast<const void*>(key.data()), key.size());
+  p += key.size();
+  memcpy(p, static_cast<const void*>(&value_size), sizeof(int32_t));
+  p += sizeof(int32_t);
+  memcpy(p, static_cast<const void*>(value.data()), value.size());
+  p += value.size();
+  memcpy(p, static_cast<const void*>(&term), sizeof(int64_t));
+  return total_len;
+}
+
+void LogEntry::Load(const std::string& buf) {
+  const char* p = buf.data();
+  int32_t user_size = 0;
+  int32_t key_size = 0;
+  int32_t value_size = 0;
+  uint8_t opcode = 0;
+  memcpy(static_cast<void*>(&opcode), p, sizeof(uint8_t));
+  op = static_cast<LogOperation>(opcode);
+  p += sizeof(uint8_t);
+  memcpy(static_cast<void*>(&user_size), p, sizeof(int32_t));
+  user.resize(user_size);
+  p += sizeof(int32_t);
+  memcpy(static_cast<void*>(&user[0]), p, user_size);
+  p += user_size;
+  memcpy(static_cast<void*>(&key_size), p, sizeof(int32_t));
+  key.resize(key_size);
+  p += sizeof(int32_t);
+  memcpy(static_cast<void*>(&key[0]), p, key_size);
+  p += key_size;
+  memcpy(static_cast<void*>(&value_size), p, sizeof(int32_t));
+  value.resize(value_size);
+  p += sizeof(int32_t);
+  memcpy(static_cast<void*>(&value[0]), p, value_size);
+  p += value_size;
+  memcpy(static_cast<void*>(&term), p, sizeof(int64_t));
+}
+
 BinLogger::BinLogger(const std::string& data_dir, bool compress,
                      int32_t block_size, int32_t write_buffer_size)
     : db_(NULL), length_(0), last_log_term_(-1) {
@@ -106,7 +161,7 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
   std::string key = IntToString(slot_index);
   leveldb::Status status = db_->Get(leveldb::ReadOptions(), key, &value);
   if (status.ok()) {
-    LoadLogEntry(value, log_entry);
+    log_entry->Load(value);
     return true;
   } else if (status.IsNotFound()) {
     return false;
@@ -116,9 +171,8 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
   }
 }
 
-void BinLogger::AppendEntryList(
-    const ::google::protobuf::RepeatedPtrField< ::galaxy::ins::Entry>&
-        entries) {
+void BinLogger::AppendEntryList(const ::google::protobuf::RepeatedPtrField<
+    ::galaxy::ins::Entry>& entries) {
   leveldb::WriteBatch batch;
   {
     MutexLock lock(&mu_);
@@ -132,8 +186,8 @@ void BinLogger::AppendEntryList(
       log_entry.key = entries.Get(i).key();
       log_entry.value = entries.Get(i).value();
       log_entry.term = entries.Get(i).term();
+      log_entry.Dump(&buf);
       last_log_term_ = log_entry.term;
-      DumpLogEntry(log_entry, &buf);
       batch.Put(IntToString(cur_index + i), buf);
     }
     batch.Put(length_tag, next_index);
@@ -145,7 +199,7 @@ void BinLogger::AppendEntryList(
 
 void BinLogger::AppendEntry(const LogEntry& log_entry) {
   std::string buf;
-  DumpLogEntry(log_entry, &buf);
+  log_entry.Dump(&buf);
   std::string cur_index;
   std::string next_index;
   {
@@ -180,65 +234,6 @@ void BinLogger::Truncate(int64_t trunk_slot_index) {
       last_log_term_ = log_entry.term;
     }
   }
-}
-
-void BinLogger::DumpLogEntry(const LogEntry& log_entry, std::string* buf) {
-  assert(buf);
-  int32_t total_len = sizeof(uint8_t) + sizeof(int32_t) +
-                      log_entry.user.size() + sizeof(int32_t) +
-                      log_entry.key.size() + sizeof(int32_t) +
-                      log_entry.value.size() + sizeof(int64_t);
-  buf->resize(total_len);
-  int32_t user_size = log_entry.user.size();
-  int32_t key_size = log_entry.key.size();
-  int32_t value_size = log_entry.value.size();
-  char* p = reinterpret_cast<char*>(&((*buf)[0]));
-  p[0] = static_cast<uint8_t>(log_entry.op);
-  p += sizeof(uint8_t);
-  memcpy(p, static_cast<const void*>(&user_size), sizeof(int32_t));
-  p += sizeof(int32_t);
-  memcpy(p, static_cast<const void*>(log_entry.user.data()),
-         log_entry.user.size());
-  p += log_entry.user.size();
-  memcpy(p, static_cast<const void*>(&key_size), sizeof(int32_t));
-  p += sizeof(int32_t);
-  memcpy(p, static_cast<const void*>(log_entry.key.data()),
-         log_entry.key.size());
-  p += log_entry.key.size();
-  memcpy(p, static_cast<const void*>(&value_size), sizeof(int32_t));
-  p += sizeof(int32_t);
-  memcpy(p, static_cast<const void*>(log_entry.value.data()),
-         log_entry.value.size());
-  p += log_entry.value.size();
-  memcpy(p, static_cast<const void*>(&log_entry.term), sizeof(int64_t));
-}
-
-void BinLogger::LoadLogEntry(const std::string& buf, LogEntry* log_entry) {
-  assert(log_entry);
-  const char* p = buf.data();
-  int32_t user_size = 0;
-  int32_t key_size = 0;
-  int32_t value_size = 0;
-  uint8_t opcode = 0;
-  memcpy(static_cast<void*>(&opcode), p, sizeof(uint8_t));
-  log_entry->op = static_cast<LogOperation>(opcode);
-  p += sizeof(uint8_t);
-  memcpy(static_cast<void*>(&user_size), p, sizeof(int32_t));
-  log_entry->user.resize(user_size);
-  p += sizeof(int32_t);
-  memcpy(static_cast<void*>(&log_entry->user[0]), p, user_size);
-  p += user_size;
-  memcpy(static_cast<void*>(&key_size), p, sizeof(int32_t));
-  log_entry->key.resize(key_size);
-  p += sizeof(int32_t);
-  memcpy(static_cast<void*>(&log_entry->key[0]), p, key_size);
-  p += key_size;
-  memcpy(static_cast<void*>(&value_size), p, sizeof(int32_t));
-  log_entry->value.resize(value_size);
-  p += sizeof(int32_t);
-  memcpy(static_cast<void*>(&log_entry->value[0]), p, value_size);
-  p += value_size;
-  memcpy(static_cast<void*>(&log_entry->term), p, sizeof(int64_t));
 }
 
 }  // namespace ins

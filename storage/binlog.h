@@ -17,7 +17,10 @@ struct LogEntry {
   std::string key;
   std::string value;
   int64_t term;
+
   LogEntry() : op(kNop), user(""), term(-1) {}
+  int32_t Dump(std::string* buf) const;
+  void Load(const std::string& buf);
 };
 
 class BinLogger {
@@ -31,9 +34,8 @@ class BinLogger {
   void Truncate(int64_t trunc_slot_index);
   void DumpLogEntry(const LogEntry& log_entry, std::string* buf);
   void LoadLogEntry(const std::string& buf, LogEntry* log_entry);
-  void AppendEntryList(
-      const ::google::protobuf::RepeatedPtrField< ::galaxy::ins::Entry>&
-          entries);
+  void AppendEntryList(const ::google::protobuf::RepeatedPtrField<
+      ::galaxy::ins::Entry>& entries);
   bool RemoveSlot(int64_t slot_index);
   bool RemoveSlotBefore(int64_t slot_gc_index);
   static std::string IntToString(int64_t num);
