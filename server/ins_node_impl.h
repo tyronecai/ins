@@ -187,10 +187,10 @@ class InsNodeImpl : public InsNode {
   void VoteCallback(const ::galaxy::ins::VoteRequest* request,
                     ::galaxy::ins::VoteResponse* response, bool failed,
                     int error);
-  void HeartBeatCallback(const ::galaxy::ins::AppendEntriesRequest* request,
+  void HeartbeatCallback(const ::galaxy::ins::AppendEntriesRequest* request,
                         ::galaxy::ins::AppendEntriesResponse* response,
                         bool failed, int error);
-  void HeartBeatForReadCallback(
+  void HeartbeatForReadCallback(
       const ::galaxy::ins::AppendEntriesRequest* request,
       ::galaxy::ins::AppendEntriesResponse* response, bool failed, int error,
       std::shared_ptr<ClientReadAck> context);
@@ -198,7 +198,7 @@ class InsNodeImpl : public InsNode {
                                 ::galaxy::ins::KeepAliveResponse* response,
                                 bool failed, int error);
 
-  void BroadCastHeartBeat();
+  void BroadCastHeartbeat();
   void CheckLeaderCrash();
   void TryToBeLeader();
   int32_t GetRandomTimeout();

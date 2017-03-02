@@ -72,10 +72,11 @@ class RpcClient {
   }
   template <class Stub, class Request, class Response, class Callback>
   void AsyncRequest(
-      Stub* stub, void (Stub::*func)(google::protobuf::RpcController*, const Request*, Response*, Callback*),
+      Stub* stub, void (Stub::*func)(google::protobuf::RpcController*,
+                                     const Request*, Response*, Callback*),
       const Request* request, Response* response,
       boost::function<void(const Request*, Response*, bool, int)> callback,
-      int32_t rpc_timeout, int retry_times) {
+      int32_t rpc_timeout = 1, int retry_times = 3) {
     (void)retry_times;
     sofa::pbrpc::RpcController* controller = new sofa::pbrpc::RpcController();
     controller->SetTimeout(rpc_timeout * 1000L);
@@ -84,6 +85,7 @@ class RpcClient {
         controller, request, response, callback);
     (stub->*func)(controller, request, response, done);
   }
+
   template <class Request, class Response, class Callback>
   static void RpcCallback(
       sofa::pbrpc::RpcController* rpc_controller, const Request* request,
@@ -93,7 +95,9 @@ class RpcClient {
     int error = rpc_controller->ErrorCode();
     if (failed || error) {
       if (error != sofa::pbrpc::RPC_ERROR_SEND_BUFFER_FULL) {
-        LOG(WARNING, "RpcCallback: %s\n", rpc_controller->ErrorText().c_str());
+        LOG(WARNING, "Rpc to %s fail, %s\n",
+            rpc_controller->RemoteAddress().c_str(),
+            rpc_controller->ErrorText().c_str());
       }
     }
     delete rpc_controller;

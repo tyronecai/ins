@@ -158,6 +158,7 @@ void InsNodeImpl::CheckLeaderCrash() {
     return;
   }
   int32_t timeout = GetRandomTimeout();
+  LOG(INFO, "get random timeout %d", timeout);
   elect_leader_task_ = leader_crash_checker_.DelayTask(timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
 }
 
@@ -399,11 +400,11 @@ void InsNodeImpl::ForwardKeepAliveCallback(
   LOG(DEBUG, "heartbeat from clients forwarded");
 }
 
-void InsNodeImpl::HeartBeatCallback(
+void InsNodeImpl::HeartbeatCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed,
     int /*error*/) {
-  LOG(INFO, "recv HeartBeatCallback: [%s] <=> [%s]",
+  LOG(INFO, "recv HeartbeatCallback: [%s] <=> [%s]",
       request->ShortDebugString().c_str(),
       response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
@@ -411,12 +412,12 @@ void InsNodeImpl::HeartBeatCallback(
       request);
   std::unique_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
   if (status_ != kLeader) {
-    LOG(INFO, "outdated HeartBeatCallback, I am no longer leader now.");
+    LOG(INFO, "outdated HeartbeatCallback, I am no longer leader now.");
     return;
   }
   if (!failed) {
     if (response_ptr->current_term() > current_term_) {
-      TransToFollower("InsNodeImpl::HeartBeatCallback",
+      TransToFollower("InsNodeImpl::HeartbeatCallback",
                       response_ptr->current_term());
     } else {
       // LOG(INFO, "I am the leader at term: %ld", current_term_);
@@ -424,11 +425,11 @@ void InsNodeImpl::HeartBeatCallback(
   }
 }
 
-void InsNodeImpl::HeartBeatForReadCallback(
+void InsNodeImpl::HeartbeatForReadCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed, int /*error*/,
     std::shared_ptr<ClientReadAck> context) {
-  LOG(INFO, "recv HeartBeatForReadCallback: [%s] <=> [%s]",
+  LOG(INFO, "recv HeartbeatForReadCallback: [%s] <=> [%s]",
       request->ShortDebugString().c_str(),
       response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
@@ -448,7 +449,7 @@ void InsNodeImpl::HeartBeatForReadCallback(
   }
   if (!failed) {
     if (response_ptr->current_term() > current_term_) {
-      TransToFollower("InsNodeImpl::HeartBeatCallbackForRead", response_ptr->current_term());
+      TransToFollower("InsNodeImpl::HeartbeatCallbackForRead", response_ptr->current_term());
       context->response->set_success(false);
       context->response->set_hit(false);
       context->response->set_leader_id("");
@@ -508,7 +509,7 @@ void InsNodeImpl::HeartBeatForReadCallback(
   }
 }
 
-void InsNodeImpl::BroadCastHeartBeat() {
+void InsNodeImpl::BroadCastHeartbeat() {
   MutexLock lock(&mu_);
   if (stop_) {
     return;
@@ -533,12 +534,12 @@ void InsNodeImpl::BroadCastHeartBeat() {
     boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
                          ::galaxy::ins::AppendEntriesResponse*, bool, int)>
         callback =
-            boost::bind(&InsNodeImpl::HeartBeatCallback, this, _1, _2, _3, _4);
+            boost::bind(&InsNodeImpl::HeartbeatCallback, this, _1, _2, _3, _4);
     rpc_client_.AsyncRequest(stub, &InsNode_Stub::AppendEntries, request,
-                             response, callback, 2, 1);
+                             response, callback);
   }
   heart_beat_pool_.DelayTask(
-      50, std::bind(&InsNodeImpl::BroadCastHeartBeat, this));
+      50, std::bind(&InsNodeImpl::BroadCastHeartbeat, this));
 }
 
 void InsNodeImpl::StartReplicateLog() {
@@ -568,7 +569,7 @@ void InsNodeImpl::TransToLeader() {
   status_ = kLeader;
   current_leader_ = self_id_;
   LOG(INFO, "I win the election, term: %ld", current_term_);
-  heart_beat_pool_.AddTask(std::bind(&InsNodeImpl::BroadCastHeartBeat, this));
+  heart_beat_pool_.AddTask(std::bind(&InsNodeImpl::BroadCastHeartbeat, this));
   StartReplicateLog();
 }
 
@@ -615,14 +616,17 @@ void InsNodeImpl::TryToBeLeader() {
     return;
   }
   if (status_ == kLeader) {
+    LOG(INFO, "status_ == kLeader");
     CheckLeaderCrash();
     return;
   }
   if (status_ == kFollower && heartbeat_count_ > 0) {
+    LOG(INFO, "status_ == kFollower && heartbeat_count_(%d) > 0", heartbeat_count_);
     heartbeat_count_ = 0;
     CheckLeaderCrash();
     return;
   }
+  LOG(INFO, "Try to be leader, broadcast vote");
   current_term_++;
   meta_->WriteCurrentTerm(current_term_);
   status_ = kCandidate;
@@ -652,7 +656,7 @@ void InsNodeImpl::TryToBeLeader() {
                          ::galaxy::ins::VoteResponse*, bool, int)> callback;
     callback = boost::bind(&InsNodeImpl::VoteCallback, this, _1, _2, _3, _4);
     rpc_client_.AsyncRequest(stub, &InsNode_Stub::Vote, request, response,
-                             callback, 2, 1);
+                             callback);
   }
   CheckLeaderCrash();
 }
@@ -1011,10 +1015,10 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
           it->c_str(), current_term_, self_id_.c_str(), commit_index_);
       boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
                            ::galaxy::ins::AppendEntriesResponse*, bool, int)>
-          callback = boost::bind(&InsNodeImpl::HeartBeatForReadCallback, this,
+          callback = boost::bind(&InsNodeImpl::HeartbeatForReadCallback, this,
                                  _1, _2, _3, _4, context);
       rpc_client_.AsyncRequest(stub, &InsNode_Stub::AppendEntries, request,
-                               response, callback, 2, 1);
+                               response, callback);
     }
   } else {
     mu_.Unlock();
@@ -1463,7 +1467,7 @@ void InsNodeImpl::ForwardKeepAlive(
     callback = boost::bind(&InsNodeImpl::ForwardKeepAliveCallback, this, _1, _2,
                            _3, _4);
     rpc_client_.AsyncRequest(stub, &InsNode_Stub::KeepAlive, forward_request,
-                             forward_response, callback, 2, 1);
+                             forward_response, callback);
   }
 }
 
