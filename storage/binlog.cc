@@ -111,7 +111,7 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
   } else if (status.IsNotFound()) {
     return false;
   } else {
-    LOG(FATAL, "Read slot fail");
+    LOG(FATAL, "Read slot fail, %s", status.ToString().c_str());
     abort();
   }
 }
