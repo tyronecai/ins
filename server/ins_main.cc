@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
   boost::split(members, FLAGS_cluster_members, boost::is_any_of(","),
                boost::token_compress_on);
   if (members.size() == 0) {
-    LOG(FATAL, "cluster is empty , please check your configuration");
+    LOG(FATAL, "cluster_members is empty, please check your configuration");
     return -1;
   }
   if (FLAGS_server_id < 1 ||
@@ -62,10 +62,12 @@ int main(int argc, char* argv[]) {
     LOG(FATAL, "failed to start server on %s", server_id.c_str());
     exit(-2);
   }
+  LOG(INFO, "Started server on %s", server_id.c_str());
   signal(SIGINT, SignalIntHandler);
   signal(SIGTERM, SignalIntHandler);
   while (!s_quit) {
     sleep(1);
   }
+  LOG(INFO, "Server shutdown");
   return 0;
 }
