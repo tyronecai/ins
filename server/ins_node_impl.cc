@@ -42,7 +42,8 @@ const static size_t sMaxPBSize = (26 << 20);
 
 InsNodeImpl::InsNodeImpl(std::string& server_id,
                          const std::vector<std::string>& members)
-    : stop_(false),
+    : members_(members),
+      stop_(false),
       self_id_(server_id),
       current_term_(0),
       status_(kFollower),
@@ -59,13 +60,28 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
       single_node_mode_(false),
       last_safe_clean_index_(-1),
       perform_(FLAGS_performance_buffer_size) {
+  Init();
+  committer_.AddTask(std::bind(&InsNodeImpl::CommitIndexObserv, this));
+  MutexLock lock(&mu_);
+  CheckLeaderCrash();
+  session_checker_.AddTask(std::bind(&InsNodeImpl::RemoveExpiredSessions, this));
+  binlog_cleaner_.AddTask(std::bind(&InsNodeImpl::GarbageClean, this));
+}
+
+void InsNodeImpl::Init() {
   srand(time(NULL));
   replication_cond_ = new CondVar(&mu_);
   commit_cond_ = new CondVar(&mu_);
+  server_start_timestamp_ = ins_common::timer::get_micros();
+
+  InitMembers();
+  InitStorage();
+}
+
+void InsNodeImpl::InitMembers() {
   // 要求自己必须在集群配置里面
   bool self_in_cluster = false;
-  for (auto it = members.begin(); it != members.end(); it++) {
-    members_.push_back(*it);
+  for (auto it = members_.begin(); it != members_.end(); it++) {
     if (self_id_ == *it) {
       LOG(INFO, "cluster member[Self]: %s", it->c_str());
       self_in_cluster = true;
@@ -93,7 +109,9 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
   } else {
     LOG(INFO, "we in cluster mode with %d nodes", members_.size());
   }
+}
 
+void InsNodeImpl::InitStorage() {
   // open data storage
   std::string sub_dir = self_id_;
   boost::replace_all(sub_dir, ":", "_");
@@ -109,18 +127,12 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
   data_store_ = new StorageManager(data_store_path);
   UserInfo root = meta_->ReadRootInfo();
   user_manager_ = new UserManager(data_store_path, root);
+
   std::string tag_value;
   Status status = data_store_->Get(StorageManager::anonymous_user, tag_last_applied_index, &tag_value);
   if (status == kOk) {
     last_applied_index_ = BinLogger::StringToInt(tag_value);
   }
-  server_start_timestamp_ = ins_common::timer::get_micros();
-  committer_.AddTask(std::bind(&InsNodeImpl::CommitIndexObserv, this));
-
-  MutexLock lock(&mu_);
-  CheckLeaderCrash();
-  session_checker_.AddTask(std::bind(&InsNodeImpl::RemoveExpiredSessions, this));
-  binlog_cleaner_.AddTask(std::bind(&InsNodeImpl::GarbageClean, this));
 }
 
 InsNodeImpl::~InsNodeImpl() {
@@ -163,8 +175,8 @@ void InsNodeImpl::CheckLeaderCrash() {
 }
 
 void InsNodeImpl::ShowStatus(
-    ::google::protobuf::RpcController* /*controller*/,
-    const ::galaxy::ins::ShowStatusRequest* /*request*/,
+    ::google::protobuf::RpcController* controller,
+    const ::galaxy::ins::ShowStatusRequest* request,
     ::galaxy::ins::ShowStatusResponse* response,
     ::google::protobuf::Closure* done) {
   LOG(DEBUG, "ShowStatus start");
@@ -665,6 +677,9 @@ void InsNodeImpl::DoAppendEntries(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response,
     ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv AppendEntries: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
   if (request->term() >= current_term_) {
     status_ = kFollower;
@@ -756,19 +771,24 @@ void InsNodeImpl::DoAppendEntries(
 }
 
 void InsNodeImpl::AppendEntries(
-    ::google::protobuf::RpcController* /*controller*/,
+    ::google::protobuf::RpcController* controller,
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response,
     ::google::protobuf::Closure* done) {
+  SampleAccessLog(controller, "AppendEntries");
   follower_worker_.AddTask(std::bind(&InsNodeImpl::DoAppendEntries, this,
                                        request, response, done));
   return;
 }
 
-void InsNodeImpl::Vote(::google::protobuf::RpcController* /*controller*/,
+void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
                        const ::galaxy::ins::VoteRequest* request,
                        ::galaxy::ins::VoteResponse* response,
                        ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Vote Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
+  SampleAccessLog(controller, "Vote");
   MutexLock lock(&mu_);
   if (request->term() < current_term_) {
     response->set_vote_granted(false);
@@ -953,6 +973,9 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
                       const ::galaxy::ins::GetRequest* request,
                       ::galaxy::ins::GetResponse* response,
                       ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Get Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Get");
   perform_.Get();
   MutexLock lock(&mu_);
@@ -992,8 +1015,7 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
   }
 
   int64_t now_timestamp = ins_common::timer::get_micros();
-  if (members_.size() > 1 && (now_timestamp - heartbeat_read_timestamp_) >
-                                 1000 * FLAGS_elect_timeout_min) {
+  if (members_.size() > 1 && (now_timestamp - heartbeat_read_timestamp_) > 1000 * FLAGS_elect_timeout_min) {
     LOG(DEBUG, "broadcast for read");
     auto context = std::make_shared<ClientReadAck>();
     context->request = request;
@@ -1062,6 +1084,9 @@ void InsNodeImpl::Delete(::google::protobuf::RpcController* controller,
                          const ::galaxy::ins::DelRequest* request,
                          ::galaxy::ins::DelResponse* response,
                          ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Delete Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Delete");
   perform_.Delete();
   MutexLock lock(&mu_);
@@ -1112,6 +1137,9 @@ void InsNodeImpl::Put(::google::protobuf::RpcController* controller,
                       const ::galaxy::ins::PutRequest* request,
                       ::galaxy::ins::PutResponse* response,
                       ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Put Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Put");
   perform_.Put();
   MutexLock lock(&mu_);
@@ -1208,6 +1236,9 @@ void InsNodeImpl::Lock(::google::protobuf::RpcController* controller,
                        const ::galaxy::ins::LockRequest* request,
                        ::galaxy::ins::LockResponse* response,
                        ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Lock Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Lock");
   perform_.Lock();
   MutexLock lock(&mu_);
@@ -1292,6 +1323,9 @@ void InsNodeImpl::Scan(::google::protobuf::RpcController* controller,
                        const ::galaxy::ins::ScanRequest* request,
                        ::galaxy::ins::ScanResponse* response,
                        ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Scan Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Scan");
   perform_.Scan();
   const std::string& uuid = request->uuid();
@@ -1396,6 +1430,9 @@ void InsNodeImpl::KeepAlive(::google::protobuf::RpcController* controller,
                             const ::galaxy::ins::KeepAliveRequest* request,
                             ::galaxy::ins::KeepAliveResponse* response,
                             ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv KeepAlive Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "KeepAlive");
   perform_.KeepAlive();
   {
@@ -1715,6 +1752,9 @@ void InsNodeImpl::Watch(::google::protobuf::RpcController* controller,
                         const ::galaxy::ins::WatchRequest* request,
                         ::galaxy::ins::WatchResponse* response,
                         ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Watch Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Watch");
   perform_.Watch();
   {
@@ -1785,6 +1825,9 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
                          const ::galaxy::ins::UnLockRequest* request,
                          ::galaxy::ins::UnLockResponse* response,
                          ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv UnLock Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Unlock");
   perform_.Unlock();
   MutexLock lock(&mu_);
@@ -1832,10 +1875,14 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
   return;
 }
 
-void InsNodeImpl::Login(::google::protobuf::RpcController* /*controller*/,
+void InsNodeImpl::Login(::google::protobuf::RpcController* controller,
                         const ::galaxy::ins::LoginRequest* request,
                         ::galaxy::ins::LoginResponse* response,
                         ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Login Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
+  SampleAccessLog(controller, "Login");
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
     response->set_status(kError);
@@ -1880,10 +1927,14 @@ void InsNodeImpl::Login(::google::protobuf::RpcController* /*controller*/,
   return;
 }
 
-void InsNodeImpl::Logout(::google::protobuf::RpcController* /*controller*/,
+void InsNodeImpl::Logout(::google::protobuf::RpcController* controller,
                          const ::galaxy::ins::LogoutRequest* request,
                          ::galaxy::ins::LogoutResponse* response,
                          ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Logout Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
+  SampleAccessLog(controller, "Logout");
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
     response->set_status(kError);
@@ -1924,10 +1975,14 @@ void InsNodeImpl::Logout(::google::protobuf::RpcController* /*controller*/,
   return;
 }
 
-void InsNodeImpl::Register(::google::protobuf::RpcController* /*controller*/,
+void InsNodeImpl::Register(::google::protobuf::RpcController* controller,
                            const ::galaxy::ins::RegisterRequest* request,
                            ::galaxy::ins::RegisterResponse* response,
                            ::google::protobuf::Closure* done) {
+  LOG(INFO, "recv Register Request: [%s] <=> [%s]",
+      request->ShortDebugString().c_str(),
+      response->ShortDebugString().c_str());
+  SampleAccessLog(controller, "Register");
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
     response->set_status(kError);
@@ -2055,8 +2110,7 @@ void InsNodeImpl::GarbageClean() {
     if (status_ == kLeader) {
       is_leader = true;
     }
-    std::copy(members_.begin(), members_.end(),
-              std::back_inserter(all_members));
+    std::copy(members_.begin(), members_.end(), std::back_inserter(all_members));
   }
   if (is_leader) {
     int64_t min_applied_index = std::numeric_limits<int64_t>::max();

@@ -184,6 +184,10 @@ class InsNodeImpl : public InsNode {
                ::google::protobuf::Closure* done);
 
  private:
+  void Init();
+  void InitMembers();
+  void InitStorage();
+
   void VoteCallback(const ::galaxy::ins::VoteRequest* request,
                     ::galaxy::ins::VoteResponse* response, bool failed,
                     int error);
