@@ -7,6 +7,8 @@
 #ifndef RPC_CLIENT_H_
 #define RPC_CLIENT_H_
 
+#include <unordered_map>
+
 #include <sofa/pbrpc/pbrpc.h>
 #include <boost/function.hpp>
 #include "common/logging.h"
@@ -24,12 +26,14 @@ class RpcClient {
     options.max_pending_buffer_size = 10;
     rpc_client_ = new sofa::pbrpc::RpcClient(options);
   }
+
   ~RpcClient() { delete rpc_client_; }
+
   template <class T>
-  bool GetStub(const std::string server, T** stub) {
+  void GetStub(const std::string server, T** stub) {
     MutexLock lock(&host_map_lock_);
     sofa::pbrpc::RpcChannel* channel = NULL;
-    HostMap::iterator it = host_map_.find(server);
+    auto it = host_map_.find(server);
     if (it != host_map_.end()) {
       channel = it->second;
     } else {
@@ -41,8 +45,8 @@ class RpcClient {
       host_map_[server] = channel;
     }
     *stub = new T(channel);
-    return true;
   }
+
   template <class Stub, class Request, class Response, class Callback>
   bool SendRequest(Stub* stub,
                    void (Stub::*func)(google::protobuf::RpcController*,
@@ -57,11 +61,10 @@ class RpcClient {
       (stub->*func)(&controller, request, response, NULL);
       if (controller.Failed()) {
         if (retry < retry_times - 1) {
-          LOG(WARNING, "Send failed, retry ...\n");
+          LOG(WARNING, "Send failed, sleep & retry %d times...", retry);
           usleep(1000000);
         } else {
-          LOG(WARNING, "SendRequest fail: %s\n",
-              controller.ErrorText().c_str());
+          LOG(WARNING, "SendRequest fail: %s", controller.ErrorText().c_str());
         }
       } else {
         return true;
@@ -70,6 +73,7 @@ class RpcClient {
     }
     return false;
   }
+
   template <class Stub, class Request, class Response, class Callback>
   void AsyncRequest(
       Stub* stub, void (Stub::*func)(google::protobuf::RpcController*,
@@ -95,7 +99,7 @@ class RpcClient {
     int error = rpc_controller->ErrorCode();
     if (failed || error) {
       if (error != sofa::pbrpc::RPC_ERROR_SEND_BUFFER_FULL) {
-        LOG(WARNING, "Rpc to %s fail, %s\n",
+        LOG(WARNING, "Rpc to %s fail, %s",
             rpc_controller->RemoteAddress().c_str(),
             rpc_controller->ErrorText().c_str());
       }
@@ -106,7 +110,7 @@ class RpcClient {
 
  private:
   sofa::pbrpc::RpcClient* rpc_client_;
-  typedef std::map<std::string, sofa::pbrpc::RpcChannel*> HostMap;
+  typedef std::unordered_map<std::string, sofa::pbrpc::RpcChannel*> HostMap;
   HostMap host_map_;
   Mutex host_map_lock_;
 };
@@ -115,5 +119,3 @@ class RpcClient {
 }  // namespace galaxy
 
 #endif  // RPC_CLIENT_H_
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */
