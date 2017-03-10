@@ -1,6 +1,9 @@
-# OPT ?= -std=c++11 -O2 -DNDEBUG     # (A) Production use (optimized mode)
-OPT ?= -std=c++11 -g2 -Wall -fPIC         # (B) Debug mode, w/ full line-level debugging symbols
-# OPT ?= std=c++11 -O2 -g2 -DNDEBUG # (C) Profiling mode: opt, but w/debugging symbols
+# (A) Production use (optimized mode)
+# OPT ?= -std=c++11 -O2 -DNDEBUG
+# (B) Debug mode, w/ full line-level debugging symbols
+OPT ?= -std=c++11 -g2 -Wall -fPIC
+# (C) Profiling mode: opt, but w/debugging symbols
+# OPT ?= std=c++11 -O2 -g2 -DNDEBUG
 
 # Thirdparty
 DEPENDS=depends

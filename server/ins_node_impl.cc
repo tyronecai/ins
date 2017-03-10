@@ -619,6 +619,7 @@ void InsNodeImpl::GetLastLogIndexAndTerm(int64_t* last_log_index,
 void InsNodeImpl::TryToBeLeader() {
   MutexLock lock(&mu_);
   if (single_node_mode_) {  // single node mode
+    LOG(INFO, "Single node mode");
     status_ = kLeader;
     current_leader_ = self_id_;
     in_safe_mode_ = false;
@@ -633,7 +634,7 @@ void InsNodeImpl::TryToBeLeader() {
     return;
   }
   if (status_ == kFollower && heartbeat_count_ > 0) {
-    LOG(INFO, "status_ == kFollower && heartbeat_count_(%d) > 0", heartbeat_count_);
+    LOG(INFO, "status_ == kFollower, recved %d heartbeat from leader", heartbeat_count_);
     heartbeat_count_ = 0;
     CheckLeaderCrash();
     return;
@@ -642,12 +643,16 @@ void InsNodeImpl::TryToBeLeader() {
   current_term_++;
   meta_->WriteCurrentTerm(current_term_);
   status_ = kCandidate;
+  // 先给自己投票
   voted_for_[current_term_] = self_id_;
   meta_->WriteVotedFor(current_term_, self_id_);
   vote_grant_[current_term_]++;
+
   int64_t last_log_index;
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
+  LOG(INFO, "Got last log index %ld, last term %ld", last_log_index, last_log_term);
+
   LOG(INFO, "Broadcast vote request to cluster, new term: %ld", current_term_);
   for (auto it = others_.begin(); it != others_.end(); it++) {
     InsNode_Stub* stub;
