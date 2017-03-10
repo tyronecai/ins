@@ -51,7 +51,7 @@ int64_t Meta::ReadCurrentTerm() {
   while (fscanf(term_file_, "%ld", &tmp) == 1) {
     cur_term = tmp;
   }
-  LOG(INFO, "got %ld for current term", cur_term);
+  LOG(INFO, "got current term: %ld", cur_term);
   return cur_term;
 }
 
@@ -66,7 +66,7 @@ void Meta::ReadVotedFor(std::map<int64_t, std::string>& voted_for) {
     last_vote_for = server_id;
   }
   if (!last_vote_for.empty()) {
-    LOG(INFO, "got %ld %s for last term", last_term, last_vote_for.c_str());
+    LOG(INFO, "got last vote for: %s at term: %ld", last_vote_for.c_str(), last_term);
     voted_for[last_term] = std::string(last_vote_for);
   }
 }

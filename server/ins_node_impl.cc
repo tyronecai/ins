@@ -61,6 +61,8 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
       last_safe_clean_index_(-1),
       perform_(FLAGS_performance_buffer_size) {
   Init();
+
+  LOG(INFO, "=================Init node imple done===========================");
   committer_.AddTask(std::bind(&InsNodeImpl::CommitIndexObserv, this));
   MutexLock lock(&mu_);
   CheckLeaderCrash();
@@ -173,7 +175,7 @@ void InsNodeImpl::CheckLeaderCrash() {
     return;
   }
   const int32_t timeout = GetRandomTimeout();
-  LOG(INFO, "get random timeout %d", timeout);
+  LOG(INFO, "get Check Leader Crash random timeout %d", timeout);
   elect_leader_task_ = leader_crash_checker_.DelayTask(
       timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
 }
@@ -223,7 +225,7 @@ void InsNodeImpl::CommitIndexObserv() {
   MutexLock lock(&mu_);
   while (!stop_) {
     while (!stop_ && commit_index_ <= last_applied_index_) {
-      LOG(INFO, "commit_idx: %ld, last_applied_index: %ld, we wait",
+      LOG(INFO, "current commit_idx: %ld, last_applied_index: %ld, need waitting",
           commit_index_, last_applied_index_);
       commit_cond_->Wait();
     }
