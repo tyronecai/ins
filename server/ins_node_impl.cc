@@ -225,7 +225,8 @@ void InsNodeImpl::CommitIndexObserv() {
   MutexLock lock(&mu_);
   while (!stop_) {
     while (!stop_ && commit_index_ <= last_applied_index_) {
-      LOG(INFO, "current commit_idx: %ld, last_applied_index: %ld, need waitting",
+      LOG(INFO,
+          "current commit_idx: %ld, last_applied_index: %ld, need waitting",
           commit_index_, last_applied_index_);
       commit_cond_->Wait();
     }
@@ -819,6 +820,7 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
       response->ShortDebugString().c_str());
   SampleAccessLog(controller, "Vote");
   MutexLock lock(&mu_);
+  // 如果对端的term小于自己的，直接拒绝掉vote_granted == false
   if (request->term() < current_term_) {
     response->set_vote_granted(false);
     response->set_term(current_term_);
@@ -828,18 +830,15 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   int64_t last_log_index;
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
-  if (request->last_log_term() < last_log_term) {
+  // 如果对端的last_log_term小于本地的，就拒绝
+  // 如果last_log_index小于本地的，也拒绝
+  if (request->last_log_term() < last_log_term ||
+      (request->last_log_term() == last_log_term &&
+       request->last_log_index() < last_log_index)) {
     response->set_vote_granted(false);
     response->set_term(current_term_);
     done->Run();
     return;
-  } else if (request->last_log_term() == last_log_term) {
-    if (request->last_log_index() < last_log_index) {
-      response->set_vote_granted(false);
-      response->set_term(current_term_);
-      done->Run();
-      return;
-    }
   }
 
   if (request->term() > current_term_) {
