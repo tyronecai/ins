@@ -857,15 +857,18 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   auto iter = voted_for_.find(current_term_);
   if (iter != voted_for_.end()) {
     if (iter->second != request->candidate_id()) {
+      LOG(WARNING, "myself %s already voted for %s at %ld", current_term_, self_id_.c_str(), iter->second.c_str(), current_term_);
       response->set_vote_granted(false);
       response->set_term(current_term_);
       done->Run();
       return;
     } 
+  } else {
+    // 记录在current_term_投票给了candidate_id
+    LOG(WARNING, "mysql %s voted for %s at %ld", self_id_.c_str(), request->candidate_id().c_str(), current_term_);
+    voted_for_[current_term_] = request->candidate_id();
+    meta_->WriteVotedFor(current_term_, request->candidate_id());
   }
-  // 记录在current_term_投票给了candidate_id
-  voted_for_[current_term_] = request->candidate_id();
-  meta_->WriteVotedFor(current_term_, request->candidate_id());
   response->set_vote_granted(true);
   response->set_term(current_term_);
   done->Run();
