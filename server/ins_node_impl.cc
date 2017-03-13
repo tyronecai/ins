@@ -830,27 +830,40 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   int64_t last_log_index;
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
+  LOG(INFO, "vote request last log term & index (%ld, %ld), self (%ld, %ld)",
+      request->last_log_term(), request->last_log_index(),
+      last_log_term, last_log_index);
+
+
   // 如果对端的last_log_term小于本地的，就拒绝
   // 如果last_log_index小于本地的，也拒绝
-  if (request->last_log_term() < last_log_term ||
-      (request->last_log_term() == last_log_term &&
-       request->last_log_index() < last_log_index)) {
+  if (request->last_log_term() < last_log_term) {
+    response->set_vote_granted(false);
+    response->set_term(current_term_);
+    done->Run();
+    return;
+  } else if (request->last_log_term() == last_log_term &&
+             request->last_log_index() < last_log_index) {
     response->set_vote_granted(false);
     response->set_term(current_term_);
     done->Run();
     return;
   }
 
+  // 如果发过来的term大于本地的，则将本地转换为follower
   if (request->term() > current_term_) {
     TransToFollower("InsNodeImpl::Vote", request->term());
   }
-  if (voted_for_.find(current_term_) != voted_for_.end() &&
-      voted_for_[current_term_] != request->candidate_id()) {
-    response->set_vote_granted(false);
-    response->set_term(current_term_);
-    done->Run();
-    return;
+  auto iter = voted_for_.find(current_term_);
+  if (iter != voted_for_.end()) {
+    if (iter->second != request->candidate_id()) {
+      response->set_vote_granted(false);
+      response->set_term(current_term_);
+      done->Run();
+      return;
+    } 
   }
+  // 记录在current_term_投票给了candidate_id
   voted_for_[current_term_] = request->candidate_id();
   meta_->WriteVotedFor(current_term_, request->candidate_id());
   response->set_vote_granted(true);
