@@ -731,76 +731,72 @@ void InsNodeImpl::DoAppendEntries(
     meta_->WriteCurrentTerm(request->term());
   }
 
-  if (status_ == kFollower) {
-    current_leader_ = request->leader_id();
-    heartbeat_count_++;
-    if (request->entries_size() > 0) {
-      if (request->prev_log_index() >= binlogger_->GetLength()) {
-        response->set_current_term(current_term_);
-        response->set_success(false);
-        response->set_log_length(binlogger_->GetLength());
-        LOG(INFO, "[AppendEntries] prev log is beyond");
-        done->Run();
-        return;
-      }
-
-      int64_t prev_log_term = -1;
-      if (request->prev_log_index() >= 0) {
-        LogEntry prev_log_entry;
-        bool slot_ok =
-            binlogger_->ReadSlot(request->prev_log_index(), &prev_log_entry);
-        assert(slot_ok);
-        prev_log_term = prev_log_entry.term;
-      }
-      if (prev_log_term != request->prev_log_term()) {
-        binlogger_->Truncate(request->prev_log_index() - 1);
-        response->set_current_term(current_term_);
-        response->set_success(false);
-        response->set_log_length(binlogger_->GetLength());
-        LOG(INFO,
-            "[AppendEntries] term not match, "
-            "term: %ld,%ld",
-            prev_log_term, request->prev_log_term());
-        done->Run();
-        return;
-      }
-      if (commit_index_ - last_applied_index_ > FLAGS_max_commit_pending) {
-        response->set_current_term(current_term_);
-        response->set_success(false);
-        response->set_log_length(binlogger_->GetLength());
-        response->set_is_busy(true);
-        LOG(INFO, "[AppendEntries] speed too fast, %ld > %ld",
-            request->prev_log_index(), last_applied_index_);
-        done->Run();
-        return;
-      }
-      if (binlogger_->GetLength() > request->prev_log_index() + 1) {
-        int64_t old_length = binlogger_->GetLength();
-        binlogger_->Truncate(request->prev_log_index());
-        LOG(INFO,
-            "[AppendEntries] log length alignment, truncate from: %ld to %ld",
-            old_length, request->prev_log_index());
-      }
-      mu_.Unlock();
-      binlogger_->AppendEntryList(request->entries());
-      mu_.Lock();
+  current_leader_ = request->leader_id();
+  ++heartbeat_count_;
+  if (request->entries_size() > 0) {
+    if (request->prev_log_index() >= binlogger_->GetLength()) {
+      response->set_current_term(current_term_);
+      response->set_success(false);
+      response->set_log_length(binlogger_->GetLength());
+      LOG(INFO, "[AppendEntries] prev log is beyond");
+      done->Run();
+      return;
     }
-    int64_t old_commit_index = commit_index_;
-    commit_index_ =
-        std::min(binlogger_->GetLength() - 1, request->leader_commit_index());
 
-    if (commit_index_ > old_commit_index) {
-      commit_cond_->Signal();
-      LOG(DEBUG, "follower: update my commit index to: %ld", commit_index_);
+    int64_t prev_log_term = -1;
+    if (request->prev_log_index() >= 0) {
+      LogEntry prev_log_entry;
+      bool slot_ok =
+          binlogger_->ReadSlot(request->prev_log_index(), &prev_log_entry);
+      assert(slot_ok);
+      prev_log_term = prev_log_entry.term;
     }
-    response->set_current_term(current_term_);
-    response->set_success(true);
-    response->set_log_length(binlogger_->GetLength());
-    done->Run();
-  } else {
-    LOG(FATAL, "invalid status: %s", NodeStatus_Name(status_).c_str());
-    abort();
+    if (prev_log_term != request->prev_log_term()) {
+      binlogger_->Truncate(request->prev_log_index() - 1);
+      response->set_current_term(current_term_);
+      response->set_success(false);
+      response->set_log_length(binlogger_->GetLength());
+      LOG(INFO,
+          "[AppendEntries] term not match, "
+          "term: %ld,%ld",
+          prev_log_term, request->prev_log_term());
+      done->Run();
+      return;
+    }
+    if (commit_index_ - last_applied_index_ > FLAGS_max_commit_pending) {
+      response->set_current_term(current_term_);
+      response->set_success(false);
+      response->set_log_length(binlogger_->GetLength());
+      response->set_is_busy(true);
+      LOG(INFO, "[AppendEntries] speed too fast, %ld > %ld",
+          request->prev_log_index(), last_applied_index_);
+      done->Run();
+      return;
+    }
+    if (binlogger_->GetLength() > request->prev_log_index() + 1) {
+      int64_t old_length = binlogger_->GetLength();
+      binlogger_->Truncate(request->prev_log_index());
+      LOG(INFO,
+          "[AppendEntries] log length alignment, truncate from: %ld to %ld",
+          old_length, request->prev_log_index());
+    }
+    mu_.Unlock();
+    binlogger_->AppendEntryList(request->entries());
+    mu_.Lock();
   }
+  int64_t old_commit_index = commit_index_;
+  commit_index_ =
+      std::min(binlogger_->GetLength() - 1, request->leader_commit_index());
+
+  if (commit_index_ > old_commit_index) {
+    commit_cond_->Signal();
+    LOG(DEBUG, "follower: update my commit index to: %ld", commit_index_);
+  }
+  response->set_current_term(current_term_);
+  response->set_success(true);
+  response->set_log_length(binlogger_->GetLength());
+  done->Run();
+
   return;
 }
 
