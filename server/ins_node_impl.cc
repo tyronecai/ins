@@ -654,8 +654,8 @@ void InsNodeImpl::TryToBeLeader() {
     return;
   }
   if (status_ == kFollower && heartbeat_count_ > 0) {
-    LOG(INFO, "status_ == kFollower, recved %d heartbeat from leader",
-        heartbeat_count_);
+    LOG(INFO, "status_ == kFollower, recved %d heartbeat from leader %s",
+        heartbeat_count_, current_leader_.c_str());
     heartbeat_count_ = 0;
     CheckLeaderCrash();
     return;
