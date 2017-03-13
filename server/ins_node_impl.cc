@@ -710,21 +710,25 @@ void InsNodeImpl::DoAppendEntries(
       request->ShortDebugString().c_str(),
       response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
-  if (request->term() >= current_term_) {
-    status_ = kFollower;
-    if (request->term() > current_term_) {
-      LOG(INFO, "Update current term from %ld to %ld", current_term_,
-          request->term());
-      meta_->WriteCurrentTerm(request->term());
-    }
-    current_term_ = request->term();
-  } else {
+  if (request->term() < current_term_) {
     response->set_current_term(current_term_);
     response->set_success(false);
     response->set_log_length(binlogger_->GetLength());
     LOG(INFO, "[AppendEntries] term is outdated");
     done->Run();
     return;
+  }
+
+  if (status_ != kFollower) {
+    LOG(INFO, "Update current status from %s to %s",
+        NodeStatus_Name(status_).c_str(), NodeStatus_Name(kFollower).c_str());
+    status_ = kFollower;
+  }
+  if (request->term() > current_term_) {
+    LOG(INFO, "Update current term from %ld to %ld", current_term_,
+        request->term());
+    current_term_ = request->term();
+    meta_->WriteCurrentTerm(request->term());
   }
 
   if (status_ == kFollower) {
@@ -800,12 +804,14 @@ void InsNodeImpl::DoAppendEntries(
   return;
 }
 
+// heartbeat & append entires
 void InsNodeImpl::AppendEntries(
     ::google::protobuf::RpcController* controller,
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response,
     ::google::protobuf::Closure* done) {
   SampleAccessLog(controller, "AppendEntries");
+  // 交给thread pool处理
   follower_worker_.AddTask(
       std::bind(&InsNodeImpl::DoAppendEntries, this, request, response, done));
   return;
@@ -831,9 +837,8 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
   LOG(INFO, "vote request last log term & index (%ld, %ld), self (%ld, %ld)",
-      request->last_log_term(), request->last_log_index(),
-      last_log_term, last_log_index);
-
+      request->last_log_term(), request->last_log_index(), last_log_term,
+      last_log_index);
 
   // 如果对端的last_log_term小于本地的，就拒绝
   // 如果last_log_index小于本地的，也拒绝
@@ -857,15 +862,17 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   auto iter = voted_for_.find(current_term_);
   if (iter != voted_for_.end()) {
     if (iter->second != request->candidate_id()) {
-      LOG(WARNING, "myself %s already voted for %s at %ld", current_term_, self_id_.c_str(), iter->second.c_str(), current_term_);
+      LOG(WARNING, "myself %s already voted for %s at %ld", current_term_,
+          self_id_.c_str(), iter->second.c_str(), current_term_);
       response->set_vote_granted(false);
       response->set_term(current_term_);
       done->Run();
       return;
-    } 
+    }
   } else {
     // 记录在current_term_投票给了candidate_id
-    LOG(WARNING, "mysql %s voted for %s at %ld", self_id_.c_str(), request->candidate_id().c_str(), current_term_);
+    LOG(WARNING, "mysql %s voted for %s at %ld", self_id_.c_str(),
+        request->candidate_id().c_str(), current_term_);
     voted_for_[current_term_] = request->candidate_id();
     meta_->WriteVotedFor(current_term_, request->candidate_id());
   }
