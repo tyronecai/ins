@@ -18,7 +18,7 @@ struct LogEntry {
   std::string value;
   int64_t term;
 
-  LogEntry() : op(kNop), user(""), term(-1) {}
+  LogEntry() : op(kNop), term(-1) {}
   int32_t Dump(std::string* buf) const;
   void Load(const std::string& buf);
 };
