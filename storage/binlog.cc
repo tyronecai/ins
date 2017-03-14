@@ -18,24 +18,30 @@ int32_t LogEntry::Dump(std::string* buf) const {
                       sizeof(int32_t) + key.size() + sizeof(int32_t) +
                       value.size() + sizeof(int64_t);
   buf->resize(total_len);
-  int32_t user_size = user.size();
-  int32_t key_size = key.size();
-  int32_t value_size = value.size();
-  char* p = reinterpret_cast<char*>(&((*buf)[0]));
+  const int32_t user_size = user.size();
+  const int32_t key_size = key.size();
+  const int32_t value_size = value.size();
+
+  char *p = const_cast<char *>(buf->data());
+  // op
   p[0] = static_cast<uint8_t>(op);
   p += sizeof(uint8_t);
+  // user length & data
   memcpy(p, static_cast<const void*>(&user_size), sizeof(int32_t));
   p += sizeof(int32_t);
   memcpy(p, static_cast<const void*>(user.data()), user.size());
   p += user.size();
+  // key length & data
   memcpy(p, static_cast<const void*>(&key_size), sizeof(int32_t));
   p += sizeof(int32_t);
   memcpy(p, static_cast<const void*>(key.data()), key.size());
   p += key.size();
+  /// value length & data
   memcpy(p, static_cast<const void*>(&value_size), sizeof(int32_t));
   p += sizeof(int32_t);
   memcpy(p, static_cast<const void*>(value.data()), value.size());
   p += value.size();
+  // term
   memcpy(p, static_cast<const void*>(&term), sizeof(int64_t));
   return total_len;
 }
@@ -45,25 +51,35 @@ void LogEntry::Load(const std::string& buf) {
   int32_t user_size = 0;
   int32_t key_size = 0;
   int32_t value_size = 0;
+
+  // op
   uint8_t opcode = 0;
   memcpy(static_cast<void*>(&opcode), p, sizeof(uint8_t));
-  op = static_cast<LogOperation>(opcode);
   p += sizeof(uint8_t);
+  op = static_cast<LogOperation>(opcode);
+
+  // user
   memcpy(static_cast<void*>(&user_size), p, sizeof(int32_t));
   user.resize(user_size);
   p += sizeof(int32_t);
   memcpy(static_cast<void*>(&user[0]), p, user_size);
   p += user_size;
+
+  // key
   memcpy(static_cast<void*>(&key_size), p, sizeof(int32_t));
   key.resize(key_size);
   p += sizeof(int32_t);
   memcpy(static_cast<void*>(&key[0]), p, key_size);
   p += key_size;
+
+  // value
   memcpy(static_cast<void*>(&value_size), p, sizeof(int32_t));
   value.resize(value_size);
   p += sizeof(int32_t);
   memcpy(static_cast<void*>(&value[0]), p, value_size);
   p += value_size;
+
+  // term
   memcpy(static_cast<void*>(&term), p, sizeof(int64_t));
 }
 
@@ -118,6 +134,7 @@ int64_t BinLogger::GetLength() {
 void BinLogger::GetLastLogIndexAndTerm(int64_t* last_log_index,
                                        int64_t* last_log_term) {
   MutexLock lock(&mu_);
+  // index从0开始计算
   *last_log_index = length_ - 1;
   *last_log_term = last_log_term_;
 }
