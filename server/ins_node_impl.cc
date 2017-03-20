@@ -856,10 +856,11 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   if (request->term() > current_term_) {
     TransToFollower("InsNodeImpl::Vote", request->term());
   }
+  // 每个term只能投票给一个人，如果自己当前就是candidate则会先投票给自己
   auto iter = voted_for_.find(current_term_);
   if (iter != voted_for_.end()) {
     if (iter->second != request->candidate_id()) {
-      LOG(WARNING, "myself %s already voted for %s at %ld", current_term_,
+      LOG(WARNING, "myself %s already voted for %s at term: %ld", current_term_,
           self_id_.c_str(), iter->second.c_str(), current_term_);
       response->set_vote_granted(false);
       response->set_term(current_term_);
