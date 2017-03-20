@@ -101,16 +101,16 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
   }
   options.write_buffer_size = write_buffer_size;
   options.block_size = block_size;
-  LOG(INFO, "[binlog]: %s, block_size: %d, writer_buffer_size: %d",
+  LOG(INFO, "[binlog]: %s, configed: block_size: %d, writer_buffer_size: %d",
       full_name.c_str(), options.block_size, options.write_buffer_size);
-  leveldb::Status status = leveldb::DB::Open(options, full_name, &db_);
+  auto status = leveldb::DB::Open(options, full_name, &db_);
   if (!status.ok()) {
     LOG(FATAL, "failed to open db %s err %s", full_name.c_str(),
         status.ToString().c_str());
     assert(status.ok());
   }
 
-  LOG(INFO, "try to init length & last log term from db");
+  LOG(INFO, "init length & last log term from db");
   std::string value;
   status = db_->Get(leveldb::ReadOptions(), length_tag, &value);
   if (status.ok() && !value.empty()) {
@@ -160,13 +160,7 @@ int64_t BinLogger::StringToInt(const std::string& s) {
 }
 
 bool BinLogger::RemoveSlot(int64_t slot_index) {
-  std::string value;
-  std::string key = IntToString(slot_index);
-  leveldb::Status status = db_->Get(leveldb::ReadOptions(), key, &value);
-  if (!status.ok()) {
-    return false;
-  }
-  status = db_->Delete(leveldb::WriteOptions(), key);
+  auto status = db_->Delete(leveldb::WriteOptions(), IntToString(slot_index));
   if (status.ok()) {
     return true;
   } else {
@@ -181,8 +175,8 @@ bool BinLogger::RemoveSlotBefore(int64_t slot_gc_index) {
 
 bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
   std::string value;
-  std::string key = IntToString(slot_index);
-  leveldb::Status status = db_->Get(leveldb::ReadOptions(), key, &value);
+  auto status =
+      db_->Get(leveldb::ReadOptions(), IntToString(slot_index), &value);
   if (status.ok()) {
     log_entry->Load(value);
     return true;
@@ -197,43 +191,33 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
 void BinLogger::AppendEntryList(const ::google::protobuf::RepeatedPtrField<
     ::galaxy::ins::Entry>& entries) {
   leveldb::WriteBatch batch;
-  {
-    MutexLock lock(&mu_);
-    int64_t cur_index = length_;
-    std::string next_index = IntToString(length_ + entries.size());
-    for (int i = 0; i < entries.size(); i++) {
-      LogEntry log_entry;
-      std::string buf;
-      log_entry.op = entries.Get(i).op();
-      log_entry.user = entries.Get(i).user();
-      log_entry.key = entries.Get(i).key();
-      log_entry.value = entries.Get(i).value();
-      log_entry.term = entries.Get(i).term();
-      log_entry.Dump(&buf);
-      last_log_term_ = log_entry.term;
-      batch.Put(IntToString(cur_index + i), buf);
-    }
-    batch.Put(length_tag, next_index);
-    leveldb::Status status = db_->Write(leveldb::WriteOptions(), &batch);
-    assert(status.ok());
-    length_ += entries.size();
+  MutexLock lock(&mu_);
+  int64_t cur_index = length_;
+  std::string buf;
+  for (auto entry : entries) {
+    LogEntry log_entry(entry);
+    log_entry.Dump(&buf);
+    last_log_term_ = log_entry.term;
+    batch.Put(IntToString(cur_index++), buf);
   }
+  batch.Put(length_tag, IntToString(cur_index));
+  leveldb::Status status = db_->Write(leveldb::WriteOptions(), &batch);
+  assert(status.ok());
+  length_ += entries.size();
 }
 
 void BinLogger::AppendEntry(const LogEntry& log_entry) {
   std::string buf;
   log_entry.Dump(&buf);
-  {
-    MutexLock lock(&mu_);
-    leveldb::WriteBatch batch;
-    batch.Put(IntToString(length_), buf);
-    batch.Put(length_tag, IntToString(length_ + 1));
-    leveldb::Status status = db_->Write(leveldb::WriteOptions(), &batch);
-    assert(status.ok());
+  leveldb::WriteBatch batch;
+  MutexLock lock(&mu_);
+  batch.Put(IntToString(length_), buf);
+  batch.Put(length_tag, IntToString(length_ + 1));
+  auto status = db_->Write(leveldb::WriteOptions(), &batch);
+  assert(status.ok());
 
-    ++length_;
-    last_log_term_ = log_entry.term;
-  }
+  ++length_;
+  last_log_term_ = log_entry.term;
 }
 
 void BinLogger::Truncate(int64_t trunk_slot_index) {
@@ -241,18 +225,16 @@ void BinLogger::Truncate(int64_t trunk_slot_index) {
     trunk_slot_index = -1;
   }
 
-  {
-    MutexLock lock(&mu_);
-    length_ = trunk_slot_index + 1;
-    leveldb::Status status =
-        db_->Put(leveldb::WriteOptions(), length_tag, IntToString(length_));
-    assert(status.ok());
-    if (length_ > 0) {
-      LogEntry log_entry;
-      bool slot_ok = ReadSlot(length_ - 1, &log_entry);
-      assert(slot_ok);
-      last_log_term_ = log_entry.term;
-    }
+  MutexLock lock(&mu_);
+  length_ = trunk_slot_index + 1;
+  auto status =
+      db_->Put(leveldb::WriteOptions(), length_tag, IntToString(length_));
+  assert(status.ok());
+  if (length_ > 0) {
+    LogEntry log_entry;
+    bool slot_ok = ReadSlot(length_ - 1, &log_entry);
+    assert(slot_ok);
+    last_log_term_ = log_entry.term;
   }
 }
 

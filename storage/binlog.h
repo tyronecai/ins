@@ -19,6 +19,12 @@ struct LogEntry {
   int64_t term;
 
   LogEntry() : op(kNop), term(-1) {}
+  LogEntry(const ::galaxy::ins::Entry& entry)
+      : op(entry.op()),
+        user(entry.user()),
+        key(entry.key()),
+        value(entry.value()),
+        term(entry.term()) {}
   int32_t Dump(std::string* buf) const;
   void Load(const std::string& buf);
 };
