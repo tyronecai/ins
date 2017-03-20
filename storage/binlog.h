@@ -29,6 +29,7 @@ class BinLogger {
             int32_t block_size = 32748, int32_t write_buffer_size = 33554432);
   ~BinLogger();
   int64_t GetLength();
+  int64_t GetLastLogIndex();
   bool ReadSlot(int64_t slot_index, LogEntry* log_entry);
   void AppendEntry(const LogEntry& log_entry);
   void Truncate(int64_t trunc_slot_index);

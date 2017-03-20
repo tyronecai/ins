@@ -566,15 +566,16 @@ void InsNodeImpl::BroadCastHeartbeat() {
 
 void InsNodeImpl::StartReplicateLog() {
   mu_.AssertHeld();
-  LOG(INFO, "Start ReplicateLog");
+  LOG(INFO, "Start replicate log to followers");
   for (auto it = others_.begin(); it != others_.end(); it++) {
+    // 所有正在replication的都加到这里，结束后会remove掉
     if (replicating_.find(*it) != replicating_.end()) {
       LOG(INFO, "there is another thread replicating on: %s", it->c_str());
       continue;
     }
-    std::string& follower_id = *it;
-    next_index_[follower_id] = binlogger_->GetLength();
-    match_index_[follower_id] = -1;
+    // 先用自己binlog的length去探测followers
+    next_index_[*it] = binlogger_->GetLength();
+    match_index_[*it] = -1;
     replicatter_.AddTask(std::bind(&InsNodeImpl::ReplicateLog, this, *it));
   }
   LogEntry log_entry;
@@ -711,10 +712,10 @@ void InsNodeImpl::DoAppendEntries(
       response->ShortDebugString().c_str());
   MutexLock lock(&mu_);
   if (request->term() < current_term_) {
+    LOG(INFO, "[AppendEntries] term is outdated");
     response->set_current_term(current_term_);
     response->set_success(false);
     response->set_log_length(binlogger_->GetLength());
-    LOG(INFO, "[AppendEntries] term is outdated");
     done->Run();
     return;
   }
@@ -743,6 +744,7 @@ void InsNodeImpl::DoAppendEntries(
       return;
     }
 
+    // 要求对应index位置的term相等
     int64_t prev_log_term = -1;
     if (request->prev_log_index() >= 0) {
       LogEntry prev_log_entry;
@@ -752,14 +754,13 @@ void InsNodeImpl::DoAppendEntries(
       prev_log_term = prev_log_entry.term;
     }
     if (prev_log_term != request->prev_log_term()) {
+      LOG(INFO, "[AppendEntries] term not match, index: %ld, term: %ld, %ld",
+          request->prev_log_index(), prev_log_term, request->prev_log_term());
+      // 数据不一致，需要退一步
       binlogger_->Truncate(request->prev_log_index() - 1);
       response->set_current_term(current_term_);
       response->set_success(false);
       response->set_log_length(binlogger_->GetLength());
-      LOG(INFO,
-          "[AppendEntries] term not match, "
-          "term: %ld,%ld",
-          prev_log_term, request->prev_log_term());
       done->Run();
       return;
     }
@@ -774,7 +775,7 @@ void InsNodeImpl::DoAppendEntries(
       return;
     }
     if (binlogger_->GetLength() > request->prev_log_index() + 1) {
-      int64_t old_length = binlogger_->GetLength();
+      const int64_t old_length = binlogger_->GetLength();
       binlogger_->Truncate(request->prev_log_index());
       LOG(INFO,
           "[AppendEntries] log length alignment, truncate from: %ld to %ld",
@@ -786,7 +787,7 @@ void InsNodeImpl::DoAppendEntries(
   }
   int64_t old_commit_index = commit_index_;
   commit_index_ =
-      std::min(binlogger_->GetLength() - 1, request->leader_commit_index());
+      std::min(binlogger_->GetLastLogIndex(), request->leader_commit_index());
 
   if (commit_index_ > old_commit_index) {
     commit_cond_->Signal();
@@ -897,6 +898,7 @@ void InsNodeImpl::UpdateCommitIndex(int64_t a_index) {
 void InsNodeImpl::ReplicateLog(std::string follower_id) {
   MutexLock lock(&mu_);
   replicating_.insert(follower_id);
+
   bool latest_replicating_ok = true;
   while (!stop_ && status_ == kLeader) {
     while (!stop_ && binlogger_->GetLength() <= next_index_[follower_id]) {
@@ -914,7 +916,7 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
       LOG(INFO, "stop realicate log, no longger leader");
       break;
     }
-    int64_t index = next_index_[follower_id];
+    const int64_t index = next_index_[follower_id];
     int64_t cur_term = current_term_;
     int64_t prev_index = index - 1;
     int64_t prev_term = -1;
@@ -1171,13 +1173,13 @@ void InsNodeImpl::Delete(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kDel;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLength() - 1;
+  int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.del_response = response;
   replication_cond_->Broadcast();
   if (single_node_mode_) {  // single node cluster
-    UpdateCommitIndex(binlogger_->GetLength() - 1);
+    UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
   return;
 }
@@ -1233,13 +1235,13 @@ void InsNodeImpl::Put(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kPut;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLength() - 1;
+  int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.response = response;
   replication_cond_->Broadcast();
   if (single_node_mode_) {  // single node cluster
-    UpdateCommitIndex(binlogger_->GetLength() - 1);
+    UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
   return;
 }
@@ -1351,13 +1353,13 @@ void InsNodeImpl::Lock(::google::protobuf::RpcController* controller,
     Status st = data_store_->Put(user, key, type_and_value);
     assert(st == kOk);
     binlogger_->AppendEntry(log_entry);
-    int64_t cur_index = binlogger_->GetLength() - 1;
+    int64_t cur_index = binlogger_->GetLastLogIndex();
     ClientAck& ack = client_ack_[cur_index];
     ack.done = done;
     ack.lock_response = response;
     replication_cond_->Broadcast();
     if (single_node_mode_) {  // single node cluster
-      UpdateCommitIndex(binlogger_->GetLength() - 1);
+      UpdateCommitIndex(binlogger_->GetLastLogIndex());
     }
   } else {
     LOG(DEBUG, "the lock %s is hold by another session", key.c_str());
@@ -1641,7 +1643,7 @@ void InsNodeImpl::RemoveExpiredSessions() {
     }
     if (single_node_mode_) {  // single node cluster
       MutexLock lock(&mu_);
-      UpdateCommitIndex(binlogger_->GetLength() - 1);
+      UpdateCommitIndex(binlogger_->GetLastLogIndex());
     }
   }
   session_checker_.DelayTask(
@@ -1917,13 +1919,13 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kUnLock;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLength() - 1;
+  int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.unlock_response = response;
   replication_cond_->Broadcast();
   if (single_node_mode_) {  // single node cluster
-    UpdateCommitIndex(binlogger_->GetLength() - 1);
+    UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
   return;
 }
@@ -1969,13 +1971,13 @@ void InsNodeImpl::Login(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kLogin;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLength() - 1;
+  int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.login_response = response;
   replication_cond_->Broadcast();
   if (single_node_mode_) {
-    UpdateCommitIndex(binlogger_->GetLength() - 1);
+    UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
   return;
 }
@@ -2017,13 +2019,13 @@ void InsNodeImpl::Logout(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kLogout;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLength() - 1;
+  int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.logout_response = response;
   replication_cond_->Broadcast();
   if (single_node_mode_) {
-    UpdateCommitIndex(binlogger_->GetLength() - 1);
+    UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
   return;
 }
@@ -2058,13 +2060,13 @@ void InsNodeImpl::Register(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kRegister;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLength() - 1;
+  int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.register_response = response;
   replication_cond_->Broadcast();
   if (single_node_mode_) {
-    UpdateCommitIndex(binlogger_->GetLength() - 1);
+    UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
   return;
 }

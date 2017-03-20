@@ -10,6 +10,7 @@ namespace galaxy {
 namespace ins {
 
 const std::string log_dbname = "#binlog";
+// 一个cursor，用于记录binlog的总长度，所以最后一个index是length - 1
 const std::string length_tag = "#BINLOG_LEN#";
 
 int32_t LogEntry::Dump(std::string* buf) const {
@@ -22,7 +23,7 @@ int32_t LogEntry::Dump(std::string* buf) const {
   const int32_t key_size = key.size();
   const int32_t value_size = value.size();
 
-  char *p = const_cast<char *>(buf->data());
+  char* p = const_cast<char*>(buf->data());
   // op
   p[0] = static_cast<uint8_t>(op);
   p += sizeof(uint8_t);
@@ -131,6 +132,11 @@ int64_t BinLogger::GetLength() {
   return length_;
 }
 
+int64_t BinLogger::GetLastLogIndex() {
+  MutexLock lock(&mu_);
+  return length_ - 1;
+}
+
 void BinLogger::GetLastLogIndexAndTerm(int64_t* last_log_index,
                                        int64_t* last_log_term) {
   MutexLock lock(&mu_);
@@ -217,18 +223,15 @@ void BinLogger::AppendEntryList(const ::google::protobuf::RepeatedPtrField<
 void BinLogger::AppendEntry(const LogEntry& log_entry) {
   std::string buf;
   log_entry.Dump(&buf);
-  std::string cur_index;
-  std::string next_index;
   {
     MutexLock lock(&mu_);
-    cur_index = IntToString(length_);
-    next_index = IntToString(length_ + 1);
     leveldb::WriteBatch batch;
-    batch.Put(cur_index, buf);
-    batch.Put(length_tag, next_index);
+    batch.Put(IntToString(length_), buf);
+    batch.Put(length_tag, IntToString(length_ + 1));
     leveldb::Status status = db_->Write(leveldb::WriteOptions(), &batch);
     assert(status.ok());
-    length_++;
+
+    ++length_;
     last_log_term_ = log_entry.term;
   }
 }
