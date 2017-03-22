@@ -14,13 +14,13 @@ PREFIX=/usr/local
 
 INCLUDE_PATH = -I. -I$(NEXUS_LDB_PATH)/include -I$(DEPENDS)/include -I$(PREFIX)/include -I$(BOOST_PATH)
 
-LDFLAGS = -L$(DEPENDS)/lib -lsofa-pbrpc -lprotobuf -lsnappy -lgflags -L$(NEXUS_LDB_PATH) -lleveldb \
+LDFLAGS = -L$(DEPENDS)/lib -lsofa-pbrpc -lprotobuf -lsnappy -lglog -lgflags -L$(NEXUS_LDB_PATH) -lleveldb \
 					-L$(PREFIX)/lib -lrt -lz -lpthread
 
 LDFLAGS_SO = -L$(DEPENDS)/lib \
           -Wl,--whole-archive -lsofa-pbrpc -lprotobuf \
 					-Wl,--no-whole-archive -lsnappy \
-					-Wl,--whole-archive -lgflags \
+					-Wl,--whole-archive -lglog -lgflags \
 					-Wl,--no-whole-archive -L$(NEXUS_LDB_PATH) -lleveldb -L$(PREFIX)/lib -lz -lpthread
 CXXFLAGS += $(OPT)
 

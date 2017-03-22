@@ -3,6 +3,7 @@
 #include <memory>
 #include <assert.h>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <sofa/pbrpc/pbrpc.h>
 #include <sys/utsname.h>
 #include <algorithm>
@@ -62,7 +63,8 @@ InsNodeImpl::InsNodeImpl(std::string& server_id,
       perform_(FLAGS_performance_buffer_size) {
   Init();
 
-  LOG(INFO, "=================Init node imple done===========================");
+  GLOG(INFO)
+      << "=================Init node imple done===========================";
   committer_.AddTask(std::bind(&InsNodeImpl::CommitIndexObserv, this));
   MutexLock lock(&mu_);
   CheckLeaderCrash();
@@ -86,31 +88,27 @@ void InsNodeImpl::InitMembers() {
   bool self_in_cluster = false;
   for (auto it = members_.begin(); it != members_.end(); it++) {
     if (self_id_ == *it) {
-      LOG(INFO, "cluster member[Self]: %s", it->c_str());
+      GLOG(INFO) << "cluster member[Self]: " << *it;
       self_in_cluster = true;
     } else {
-      LOG(INFO, "cluster member: %s", it->c_str());
+      GLOG(INFO) << "cluster member: " << *it;
       others_.push_back(*it);
     }
   }
   if (!self_in_cluster) {
-    LOG(FATAL,
-        "this node is not in cluster membership, please check your "
-        "configuration. self: %s",
-        self_id_.c_str());
-    exit(-1);
+    GLOG(FATAL) << "this node is not in cluster membership, please check your "
+                   "configuration. self: " << self_id_;
   }
   // verify cluster size
   if (members_.size() > static_cast<size_t>(FLAGS_max_cluster_size)) {
-    LOG(FATAL, "cluster size is larger than configuration: %d > %d",
-        members_.size(), FLAGS_max_cluster_size);
-    exit(-1);
+    GLOG(FATAL) << "cluster size is too larger: " << members_.size() << " > "
+                << FLAGS_max_cluster_size;
   }
   if (members_.size() == 1) {
-    LOG(INFO, "we in single node mode");
+    GLOG(INFO) << "we in single node mode";
     single_node_mode_ = true;
   } else {
-    LOG(INFO, "we in cluster mode with %d nodes", members_.size());
+    GLOG(INFO) << "we in cluster mode with " << members_.size() << " nodes";
   }
 }
 
@@ -175,7 +173,7 @@ void InsNodeImpl::CheckLeaderCrash() {
     return;
   }
   const int32_t timeout = GetRandomTimeout();
-  LOG(INFO, "get Check Leader Crash random timeout %d", timeout);
+  GLOG(INFO) << "get Check Leader Crash random timeout " << timeout;
   elect_leader_task_ = leader_crash_checker_.DelayTask(
       timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
 }
@@ -184,12 +182,12 @@ void InsNodeImpl::ShowStatus(::google::protobuf::RpcController* controller,
                              const ::galaxy::ins::ShowStatusRequest* request,
                              ::galaxy::ins::ShowStatusResponse* response,
                              ::google::protobuf::Closure* done) {
-  LOG(DEBUG, "ShowStatus start");
+  GLOG(INFO) << "ShowStatus start";
   int64_t last_log_index;
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
-  LOG(DEBUG, "last_log_index: %ld, last_log_term: %d", last_log_index,
-      last_log_term);
+  GLOG(INFO) << "last_log_index: " << last_log_index
+             << ", last_log_term: " << last_log_term;
   {
     MutexLock lock(&mu_);
     response->set_status(status_);
@@ -200,13 +198,13 @@ void InsNodeImpl::ShowStatus(::google::protobuf::RpcController* controller,
     response->set_last_applied(last_applied_index_);
   }
   done->Run();
-  LOG(DEBUG, "ShowStatus done.");
+  GLOG(INFO) << "ShowStatus done";
 }
 
 void InsNodeImpl::TransToFollower(const char* msg, int64_t new_term) {
   mu_.AssertHeld();
-  LOG(INFO, "%s, my term is outdated(%ld < %ld), trans to follower", msg,
-      current_term_, new_term);
+  GLOG(INFO) << msg << ", my term is outdated(" << current_term_ << " < "
+             << new_term << "), trans to follower";
   status_ = kFollower;
   current_term_ = new_term;
   meta_->WriteCurrentTerm(current_term_);
@@ -225,9 +223,9 @@ void InsNodeImpl::CommitIndexObserv() {
   MutexLock lock(&mu_);
   while (!stop_) {
     while (!stop_ && commit_index_ <= last_applied_index_) {
-      LOG(INFO,
-          "current commit_idx: %ld, last_applied_index: %ld, need waitting",
-          commit_index_, last_applied_index_);
+      GLOG(INFO) << "current commit_idx: " << commit_index_
+                 << ", last_applied_index: " << last_applied_index_
+                 << ", need waitting";
       commit_cond_->Wait();
     }
     if (stop_) {
@@ -238,8 +236,8 @@ void InsNodeImpl::CommitIndexObserv() {
     bool nop_committed = false;
     mu_.Unlock();
 
-    LOG(INFO, "wait back, begin to process index from %ld to %ld", from_idx,
-        to_idx);
+    GLOG(INFO) << "wait back, begin to process index from " << from_idx << "to "
+               << to_idx;
     for (int64_t i = from_idx + 1; i <= to_idx; i++) {
       LogEntry log_entry;
       bool slot_ok = binlogger_->ReadSlot(i, &log_entry);
@@ -251,10 +249,9 @@ void InsNodeImpl::CommitIndexObserv() {
       switch (log_entry.op) {
         case kPut:
         case kLock:
-          LOG(INFO,
-              "Put & Lock, add to data_store_, key: %s, value: %s, user: %s",
-              log_entry.key.c_str(), log_entry.value.c_str(),
-              log_entry.user.c_str());
+          GLOG(INFO) << "Put & Lock, add to data_store_, key: " << log_entry.key
+                     << ", value: " << log_entry.value
+                     << ", user: " << log_entry.user;
           type_and_value.append(1, static_cast<char>(log_entry.op));
           type_and_value.append(log_entry.value);
           s = data_store_->Put(log_entry.user, log_entry.key, type_and_value);
@@ -279,7 +276,7 @@ void InsNodeImpl::CommitIndexObserv() {
           assert(s == kOk);
           break;
         case kDel:
-          LOG(INFO, "Delete from data_store_, key: %s", log_entry.key.c_str());
+          GLOG(INFO) << "Delete from data_store_, key: " << log_entry.key;
           s = data_store_->Delete(log_entry.user, log_entry.key);
           if (s == kUnknownUser) {
             if (data_store_->OpenDatabase(log_entry.user)) {
@@ -293,19 +290,19 @@ void InsNodeImpl::CommitIndexObserv() {
                         log_entry.value, true));
           break;
         case kNop:
-          LOG(INFO, "kNop got, do nothing, key: %s", log_entry.key.c_str());
+          GLOG(INFO) << "kNop got, do nothing, key: " << log_entry.key;
           {
             MutexLock locker(&mu_);
             if (log_entry.term == current_term_) {
               nop_committed = true;
             }
-            LOG(INFO, "nop term: %ld, cur term: %ld", log_entry.term,
-                current_term_);
+            GLOG(INFO) << "nop term: " << log_entry.term
+                       << ", cur term: " << current_term_;
           }
           break;
         case kUnLock: {
-          LOG(INFO, "Unlock, user: %s, key: %s", log_entry.user.c_str(),
-              log_entry.key.c_str());
+          GLOG(INFO) << "Unlock, user: " << log_entry.user
+                     << ", key: " << log_entry.key;
           const std::string& key = log_entry.key;
           const std::string& old_session = log_entry.value;
           std::string value;
