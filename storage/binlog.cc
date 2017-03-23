@@ -3,7 +3,6 @@
 #include <assert.h>
 #include "glog/logging.h"
 #include "common/asm_atomic.h"
-#include "common/logging.h"
 #include "leveldb/write_batch.h"
 #include "utils.h"
 
@@ -90,28 +89,26 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
     : db_(NULL), length_(0), last_log_term_(-1) {
   bool ok = ins_common::Mkdirs(data_dir.c_str());
   if (!ok) {
-    GLOG(FATAL) << "failed to create dir: " << data_dir;
+    LOG(FATAL) << "failed to create dir: " << data_dir;
   }
   std::string full_name = data_dir + "/" + log_dbname;
   leveldb::Options options;
   options.create_if_missing = true;
   if (compress) {
     options.compression = leveldb::kSnappyCompression;
-    GLOG(INFO) << "enable snappy compress for binlog for " << full_name;
+    LOG(INFO) << "enable snappy compress for binlog for " << full_name;
   }
   options.write_buffer_size = write_buffer_size;
   options.block_size = block_size;
-  GLOG(INFO) << "[binlog]: " << full_name
+  LOG(INFO) << "[binlog]: " << full_name
              << ", configed: block_size: " << options.block_size
              << ", writer_buffer_size: " << options.write_buffer_size;
   auto status = leveldb::DB::Open(options, full_name, &db_);
   if (!status.ok()) {
-    LOG(FATAL, "failed to open db %s err %s", full_name.c_str(),
-        status.ToString().c_str());
-    assert(status.ok());
+    LOG(FATAL) << "open db " << full_name << "fail, " << status.ToString();
   }
 
-  GLOG(INFO) << "init length & last log term from db";
+  LOG(INFO) << "init length & last log term from db";
   std::string value;
   status = db_->Get(leveldb::ReadOptions(), length_tag, &value);
   if (status.ok() && !value.empty()) {
@@ -121,7 +118,7 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
       bool slot_ok = ReadSlot(length_ - 1, &log_entry);
       assert(slot_ok);
       last_log_term_ = log_entry.term;
-      GLOG(INFO) << "get length: " << length_
+      LOG(INFO) << "get length: " << length_
                  << ", last log term: " << last_log_term_;
     }
   }
@@ -185,8 +182,7 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
   } else if (status.IsNotFound()) {
     return false;
   } else {
-    LOG(FATAL, "Read slot fail, %s", status.ToString().c_str());
-    abort();
+    LOG(FATAL) << "read slot " << slot_index << " fail, " << status.ToString();
   }
 }
 

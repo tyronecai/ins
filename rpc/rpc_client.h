@@ -11,7 +11,7 @@
 
 #include <sofa/pbrpc/pbrpc.h>
 #include <boost/function.hpp>
-#include "common/logging.h"
+#include "glog/logging.h"
 #include "common/mutex.h"
 #include "common/thread_pool.h"
 
@@ -61,10 +61,11 @@ class RpcClient {
       (stub->*func)(&controller, request, response, NULL);
       if (controller.Failed()) {
         if (retry < retry_times - 1) {
-          LOG(WARNING, "Send failed, sleep & retry %d times...", retry);
+          LOG(WARNING) << "Send failed, sleep & retry " << retry
+                        << " times...";
           usleep(1000000);
         } else {
-          LOG(WARNING, "SendRequest fail: %s", controller.ErrorText().c_str());
+          LOG(WARNING) << "SendRequest fail: " << controller.ErrorText();
         }
       } else {
         return true;
@@ -99,9 +100,8 @@ class RpcClient {
     int error = rpc_controller->ErrorCode();
     if (failed || error) {
       if (error != sofa::pbrpc::RPC_ERROR_SEND_BUFFER_FULL) {
-        LOG(WARNING, "Rpc to %s fail, %s",
-            rpc_controller->RemoteAddress().c_str(),
-            rpc_controller->ErrorText().c_str());
+        LOG(WARNING) << "Rpc to " << rpc_controller->RemoteAddress()
+                      << " fail, " << rpc_controller->ErrorText();
       }
     }
     delete rpc_controller;

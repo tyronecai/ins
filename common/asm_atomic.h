@@ -36,7 +36,7 @@ inline T atomic_inc_ret_old(volatile T* n) {
 }
 template <typename T>
 inline T atomic_dec_ret_old(volatile T* n) {
-  T r = (T)-1;
+  T r = (T) - 1;
   asm volatile("lock; xaddl %1, %0;" : "+m"(*n), "+r"(r)::"cc");
   return r;
 }
@@ -53,7 +53,7 @@ inline T atomic_inc_ret_old64(volatile T* n) {
 }
 template <typename T>
 inline T atomic_dec_ret_old64(volatile T* n) {
-  T r = (T)-1;
+  T r = (T) - 1;
   asm volatile("lock; xaddq %1, %0;" : "+m"(*n), "+r"(r)::"cc");
   return r;
 }

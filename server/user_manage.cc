@@ -7,7 +7,6 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <sstream>
 #include <string>
-#include "common/logging.h"
 #include "common/timer.h"
 #include "leveldb/write_batch.h"
 #include "storage/utils.h"
@@ -30,7 +29,7 @@ UserManager::UserManager(const std::string& data_dir, const UserInfo& root)
     : data_dir_(data_dir) {
   bool ok = ins_common::Mkdirs(data_dir.c_str());
   if (!ok) {
-    GLOG(FATAL) << "failed to create dir: " << data_dir;
+    LOG(FATAL) << "failed to create dir: " << data_dir;
   }
   std::string full_name = data_dir + "/" + user_dbname;
   leveldb::Options options;
@@ -48,15 +47,15 @@ Status UserManager::Login(const std::string& name, const std::string& password,
   MutexLock lock(&mu_);
   std::map<std::string, UserInfo>::iterator user_it = user_list_.find(name);
   if (user_it == user_list_.end()) {
-    GLOG(WARNING) << "Not exist user tried to login: " << name;
+    LOG(WARNING) << "Not exist user tried to login: " << name;
     return kUnknownUser;
   }
   if (user_it->second.passwd() != password) {
-    GLOG(WARNING) << "Password error for logging: " << name;
+    LOG(WARNING) << "Password error for logging: " << name;
     return kPasswordError;
   }
   if (uuid.empty()) {
-    GLOG(FATAL) << "provide improper uuid: " << name;
+    LOG(FATAL) << "provide improper uuid: " << name;
     return kError;
   }
 
@@ -69,7 +68,7 @@ Status UserManager::Logout(const std::string& uuid) {
   std::map<std::string, std::string>::iterator online_it =
       logged_users_.find(uuid);
   if (online_it == logged_users_.end()) {
-    GLOG(WARNING) << "Logout for an not exist user: " << uuid;
+    LOG(WARNING) << "Logout for an not exist user: " << uuid;
     return kUnknownUser;
   }
 
@@ -81,13 +80,13 @@ Status UserManager::Register(const std::string& name,
                              const std::string& password) {
   MutexLock lock(&mu_);
   if (name.empty()) {
-    GLOG(WARNING) << "Cannot register a user without username";
+    LOG(WARNING) << "Cannot register a user without username";
     // Return `exist' status since empty user is consider as default in storage
     return kUserExists;
   }
   std::map<std::string, UserInfo>::iterator user_it = user_list_.find(name);
   if (user_it != user_list_.end()) {
-    GLOG(WARNING) << "Try to register an exist user: " << name;
+    LOG(WARNING) << "Try to register an exist user: " << name;
     return kUserExists;
   }
   if (!WriteToDatabase(name, password)) {
@@ -95,7 +94,7 @@ Status UserManager::Register(const std::string& name,
   }
   user_list_[name].set_username(name);
   user_list_[name].set_passwd(password);
-  GLOG(INFO) << name << " registered ok";
+  LOG(INFO) << name << " registered ok";
   return kOk;
 }
 
@@ -140,7 +139,7 @@ Status UserManager::DeleteUser(const std::string& myid,
   }
   std::map<std::string, UserInfo>::iterator user_it = user_list_.find(name);
   if (user_it == user_list_.end()) {
-    GLOG(WARNING) << "Try to delete an not exist user: " << name;
+    LOG(WARNING) << "Try to delete an not exist user: " << name;
     return kNotFound;
   }
   if (!DeleteUserFromDatabase(name)) {

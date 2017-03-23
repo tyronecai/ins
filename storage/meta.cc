@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string>
-#include "common/logging.h"
 #include "glog/logging.h"
 #include "server/user_manage.h"
 #include "utils.h"
@@ -24,15 +23,15 @@ Meta::Meta(const std::string& data_dir)
       root_file_(NULL) {
   bool ok = ins_common::Mkdirs(data_dir.c_str());
   if (!ok) {
-    GLOG(FATAL) << "failed to create dir: " << data_dir;
+    LOG(FATAL) << "failed to create dir: " << data_dir;
   }
-  GLOG(INFO) << "open " << (data_dir + "/" + term_file_name)
+  LOG(INFO) << "open " << (data_dir + "/" + term_file_name)
              << " for term file";
   term_file_ = fopen((data_dir + "/" + term_file_name).c_str(), "a+");
-  GLOG(INFO) << "open " << (data_dir + "/" + vote_file_name)
+  LOG(INFO) << "open " << (data_dir + "/" + vote_file_name)
              << " for vote file";
   vote_file_ = fopen((data_dir + "/" + vote_file_name).c_str(), "a+");
-  GLOG(INFO) << "open " << (data_dir + "/" + root_file_name)
+  LOG(INFO) << "open " << (data_dir + "/" + root_file_name)
              << " for root file";
   root_file_ = fopen((data_dir + "/" + root_file_name).c_str(), "r+");
   assert(term_file_ != NULL);
@@ -54,7 +53,7 @@ int64_t Meta::ReadCurrentTerm() {
   while (fscanf(term_file_, "%ld", &tmp) == 1) {
     cur_term = tmp;
   }
-  GLOG(INFO) << "got current term: " << cur_term;
+  LOG(INFO) << "got current term: " << cur_term;
   return cur_term;
 }
 
@@ -69,7 +68,7 @@ void Meta::ReadVotedFor(std::map<int64_t, std::string>& voted_for) {
     last_vote_for = server_id;
   }
   if (!last_vote_for.empty()) {
-    GLOG(INFO) << "got last vote for: " << last_vote_for
+    LOG(INFO) << "got last vote for: " << last_vote_for
                << " at term: " << last_term;
     voted_for[last_term] = std::string(last_vote_for);
   }
@@ -85,7 +84,7 @@ UserInfo Meta::ReadRootInfo() {
     *p++ = 0;
     root.set_username(buf);
     root.set_passwd(p);
-    GLOG(INFO) << "got username: " << buf << ", passwd: " << p << " for root";
+    LOG(INFO) << "got username: " << buf << ", passwd: " << p << " for root";
   }
   return root;
 }
@@ -93,14 +92,14 @@ UserInfo Meta::ReadRootInfo() {
 void Meta::WriteCurrentTerm(int64_t current_term) {
   fprintf(term_file_, "%ld\n", current_term);
   if (fflush(term_file_) != 0) {
-    GLOG(FATAL) << "Meta::WriteCurrentTerm failed, term: " << current_term;
+    LOG(FATAL) << "Meta::WriteCurrentTerm failed, term: " << current_term;
   }
 }
 
 void Meta::WriteVotedFor(int64_t term, const std::string& server_id) {
   fprintf(vote_file_, "%ld %s\n", term, server_id.c_str());
   if (fflush(vote_file_) != 0) {
-    GLOG(FATAL) << "Meta::WriteVotedFor failed, term: " << term
+    LOG(FATAL) << "Meta::WriteVotedFor failed, term: " << term
                 << ", server_id: " << server_id;
   }
 }
@@ -113,7 +112,7 @@ void Meta::WriteRootInfo(const UserInfo& user) {
   fprintf(root_file_, "%s\t%s\n", user.username().c_str(),
           user.passwd().c_str());
   if (fflush(root_file_) != 0) {
-    GLOG(FATAL) << "Meta::WriteUserList failed, username: " << user.username();
+    LOG(FATAL) << "Meta::WriteUserList failed, username: " << user.username();
   }
 }
 

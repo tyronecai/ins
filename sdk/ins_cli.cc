@@ -11,7 +11,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "common/logging.h"
+#include "glog/logging.h"
 #include "common/tprinter.h"
 
 DECLARE_string(ins_cmd);
@@ -101,32 +101,32 @@ int main(int argc, char* argv[]) {
     } else if (FLAGS_ins_cmd == "put") {
       std::string key = FLAGS_ins_key;
       std::string value = FLAGS_ins_value;
-      LOG(INFO, "key: %s, value: %s", key.c_str(), value.c_str());
+      LOG(INFO) << "key: " << key << ", value: " << value;
       if (sdk.Put(key, value, &ins_err)) {
-        LOG(INFO, "put success");
+        LOG(INFO) << "put success";
         if (ins_err == kUnknownUser) {
           fprintf(stderr, "previous login may expired, please logout\n");
         }
       } else {
-        LOG(FATAL, "put failed");
+        LOG(ERROR) << "put failed";
       }
     } else if (FLAGS_ins_cmd == "delete") {
       std::string key = FLAGS_ins_key;
-      LOG(INFO, "key: %s", key.c_str());
+      LOG(INFO) << "key: " << key;
       if (sdk.Delete(key, &ins_err)) {
-        LOG(INFO, "delete success");
+        LOG(INFO) << "delete success";
         if (ins_err == kUnknownUser) {
           fprintf(stderr, "previous login may expired, please logout\n");
         }
       } else {
-        LOG(FATAL, "delete failed");
+        LOG(ERROR) << "delete failed";
       }
     } else if (FLAGS_ins_cmd == "get") {
       std::string key = FLAGS_ins_key;
       std::string value;
-      LOG(INFO, "key: %s", key.c_str());
+      LOG(INFO) << "key: " << key;
       if (sdk.Get(key, &value, &ins_err)) {
-        LOG(INFO, "get success");
+        LOG(INFO) << "get success";
         if (ins_err == kOK) {
           std::cout << "value:" << value << std::endl;
         } else if (ins_err == kUnknownUser) {
@@ -135,12 +135,12 @@ int main(int argc, char* argv[]) {
           printf("NOT FOUND\n");
         }
       } else {
-        LOG(FATAL, "get failed");
+        LOG(ERROR) << "get failed";
       }
     } else if (FLAGS_ins_cmd == "scan") {
       std::string start_key = FLAGS_ins_start_key;
       std::string end_key = FLAGS_ins_end_key;
-      LOG(INFO, "scan: [%s, %s)", start_key.c_str(), end_key.c_str());
+      LOG(INFO) << "scan: [" << start_key << ", " << end_key << ")";
       ScanResult* result = sdk.Scan(start_key, end_key);
       if (result->Error() == kUnknownUser) {
         fprintf(stderr, "previous login may expired, please logout\n");
@@ -240,14 +240,14 @@ int main(int argc, char* argv[]) {
     } else if (FLAGS_ins_cmd == "login") {
       std::string username = FLAGS_ins_key;
       std::string password = FLAGS_ins_value;
-      LOG(INFO, "user %s login", username.c_str());
+      LOG(INFO) << "user " << username << " login";
       if (sdk.Login(username, password, &ins_err)) {
-        LOG(INFO, "login finished");
+        LOG(INFO) << "login finished";
         printf("login success\nperform actions for user %s now\n",
                username.c_str());
         is_logged = true;
       } else {
-        LOG(FATAL, "login failed");
+        LOG(ERROR) << "login failed";
         switch (ins_err) {
           case kUnknownUser:
             printf("user doesn't exist\n");
@@ -263,9 +263,9 @@ int main(int argc, char* argv[]) {
         }
       }
     } else if (FLAGS_ins_cmd == "logout") {
-      LOG(INFO, "user logout");
+      LOG(INFO) << "user logout";
       if (sdk.Logout(&ins_err)) {
-        LOG(INFO, "logout success");
+        LOG(INFO) << "logout success";
         if (ins_err == kOK) {
           printf("logout success\n");
         } else {
@@ -273,17 +273,17 @@ int main(int argc, char* argv[]) {
         }
         is_logged = false;
       } else {
-        LOG(FATAL, "logout failed");
+        LOG(ERROR) << "logout failed";
       }
     } else if (FLAGS_ins_cmd == "register") {
       std::string username = FLAGS_ins_key;
       std::string password = FLAGS_ins_value;
-      LOG(INFO, "register new user %s", username.c_str());
+      LOG(INFO) << "register new user " << username;
       if (sdk.Register(username, password, &ins_err)) {
-        LOG(INFO, "register finished");
+        LOG(INFO) << "register finished";
         printf("register success\n");
       } else {
-        LOG(FATAL, "register failed");
+        LOG(ERROR) << "register failed";
         if (ins_err == kUserExists) {
           printf("username has been registered\n");
         } else if (ins_err == kPasswordError) {

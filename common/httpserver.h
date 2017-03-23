@@ -21,7 +21,8 @@
 
 #include <string>
 #include <vector>
-#include "logging.h"
+
+#include "glog/logging.h"
 #include "mutex.h"
 #include "thread_pool.h"
 
@@ -40,9 +41,9 @@ class HttpFileServer {
       close(listen_socket_);
     }
     stop_ = true;
-    LOG(INFO, "wait threads");
+    GLOG(INFO << "wait threads";
     delete pool_;
-    LOG(INFO, "~HttpFileServer()");
+    GLOG(INFO) << "~HttpFileServer()";
   }
 
   void Start(int thread_num) {
@@ -58,7 +59,7 @@ class HttpFileServer {
     ::signal(SIGPIPE, SIG_IGN);
     listen_socket_ = ::socket(AF_INET, SOCK_STREAM, 0);
     if (listen_socket_ < 0) {
-      LOG(WARNING, "create listen socket fail.");
+      GLOG(WARNING) << "create listen socket fail.";
       perror("create socket faild");
       return -1;
     }
@@ -70,12 +71,12 @@ class HttpFileServer {
     server_addr.sin_addr.s_addr = ::inet_addr("0.0.0.0");
     if (::bind(listen_socket_, (sockaddr*)&server_addr, sizeof(server_addr)) <
         0) {
-      LOG(WARNING, "bind to %d faild", port_);
+      GLOG(WARNING) << "bind to " << port_ << " faild";
       perror("bind fail");
       return -1;
     }
     if (::listen(listen_socket_, 32) < 0) {
-      LOG(WARNING, "listen faild");
+      GLOG(WARNING) << "listen faild";
       return -1;
     }
 
@@ -91,11 +92,11 @@ class HttpFileServer {
       int client_fd =
           ::accept(listen_socket_, (sockaddr*)&client_addr, &sock_len);
       if (client_fd < 0) {
-        LOG(WARNING, "invalid client fd:%d", client_fd);
+        GLOG(WARNING) << "invalid client fd: " << client_fd;
         continue;
       }
-      pool_->AddTask(std::bind(&HttpFileServer::HandleClient, this,
-                                 client_addr, client_fd));
+      pool_->AddTask(std::bind(&HttpFileServer::HandleClient, this, client_addr,
+                               client_fd));
     }
     return 0;
   }
@@ -150,7 +151,7 @@ class HttpFileServer {
         ssize_t ret =
             ::sendfile(sock_fd, file_fd, &pos, file_size - transfer_bytes);
         if (ret < 0) {
-          LOG(WARNING, "failed to sendfile");
+          GLOG(WARNING) << "failed to sendfile";
           perror("");
           break;
         }
@@ -160,7 +161,7 @@ class HttpFileServer {
     }
 
     void Error(const char* msg) {
-      LOG(WARNING, "msg: %s", msg);
+      GLOG(WARNING) << "msg: " << msg;
       fprintf(out_stream_, "%s\n", msg);
     }
 
@@ -211,11 +212,11 @@ class HttpFileServer {
         off_t file_size = stat_buf.st_size;
         session.SendFile(file_fd, file_size);
       } else {
-        LOG(WARNING, "%s can not be found", real_path.c_str());
+        GLOG(WARNING) << real_path << " can not be found";
         session.Error("file not exists\n");
       }
     } else {
-      LOG(WARNING, "bad header: %s", header);
+      GLOG(WARNING) << "bad header: " << header;
       session.Error("bad method");
     }
   }

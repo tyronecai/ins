@@ -192,8 +192,8 @@ class InsNodeImpl : public InsNode {
                     ::galaxy::ins::VoteResponse* response, bool failed,
                     int error);
   void HeartbeatCallback(const ::galaxy::ins::AppendEntriesRequest* request,
-                        ::galaxy::ins::AppendEntriesResponse* response,
-                        bool failed, int error);
+                         ::galaxy::ins::AppendEntriesResponse* response,
+                         bool failed, int error);
   void HeartbeatForReadCallback(
       const ::galaxy::ins::AppendEntriesRequest* request,
       ::galaxy::ins::AppendEntriesResponse* response, bool failed, int error,

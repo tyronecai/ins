@@ -1,5 +1,5 @@
-#ifndef GALAXY_SDK_BINGLOG_H_
-#define GALAXY_SDK_BINGLOG_H_
+#ifndef GALAXY_SDK_BINLOG_H_
+#define GALAXY_SDK_BINLOG_H_
 
 #include <stdio.h>
 #include <stdlib.h>

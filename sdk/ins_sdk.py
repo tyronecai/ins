@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/ usr / bin / python
 
 from ctypes import CDLL, byref, CFUNCTYPE, POINTER, Structure, cast, addressof
 from ctypes import c_void_p, c_char_p, c_long, c_int, c_bool, py_object, string_at
@@ -68,13 +68,13 @@ class InsSDK:
         cluster_list = []
         for i in xrange(count):
             cluster_list.append({
-                'server_id' : str(clusters[i].server_id),
+  'server_id' : str(clusters[i].server_id),
                 'status' : NodeStatus[clusters[i].status],
-                'term' : clusters[i].term,
-                'last_log_index' : clusters[i].last_log_index,
-                'last_log_term' : clusters[i].last_log_term,
-                'commit_index' : clusters[i].commit_index,
-                'last_applied' : clusters[i].last_applied
+                           'term' : clusters[i].term,
+                           'last_log_index' : clusters[i].last_log_index,
+                           'last_log_term' : clusters[i].last_log_term,
+                           'commit_index' : clusters[i].commit_index,
+                           'last_applied' : clusters[i].last_applied
             })
         _ins.DeleteClusterArray(cluster_ptr)
         return cluster_list
@@ -205,7 +205,7 @@ class InsSDK:
     _contexts = {}
     _callback = {}
 
-# <-- InsSDK class definition ends here
+            # <-- InsSDK class definition ends here
 
 class ScanResult:
     def __init__(self, res_ptr):
@@ -255,7 +255,7 @@ class ScanResult:
             _ins.ScanResultNext(self.scanner)
             return key, value
 
-# <-- ScanResult class definition ends here
+            # <-- ScanResult class definition ends here
 
 _ins = CDLL('./libins_py.so')
 def _set_function_sign():
@@ -314,4 +314,3 @@ def _set_function_sign():
     _ins.DeleteStatArray.argtypes = [c_void_p]
     _ins.DeleteScanResult.argtypes = [c_void_p]
 _set_function_sign()
-

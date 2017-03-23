@@ -63,9 +63,9 @@ class Mutex {
 
  private:
   void AfterLock(const char* msg, int64_t msg_threshold) {
-    // invoid of warning
-    //msg = msg;
-    //msg_threshold = msg_threshold;
+// invoid of warning
+// msg = msg;
+// msg_threshold = msg_threshold;
 #ifdef MUTEX_DEBUG
     msg_ = msg;
     msg_threshold_ = msg_threshold;

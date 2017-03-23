@@ -43,7 +43,7 @@ void InsSDK::ParseFlagFromArgs(int argc, char* argv[],
   boost::split(*members, FLAGS_cluster_members, boost::is_any_of(","),
                boost::token_compress_on);
   if (members->size() < 1) {
-    LOG(FATAL, "invalid cluster size");
+    LOG(ERROR) << "invalid cluster size";
     abort();
   }
 }
@@ -68,15 +68,9 @@ void InsSDK::Init(const std::vector<std::string>& members) {
   loggin_expired_ = false;
   watch_task_id_ = 0;
   last_succ_alive_timestamp_ = ins_common::timer::get_micros();
-  SOFA_PBRPC_SET_LOG_LEVEL(WARNING);
-  sofa::pbrpc::set_log_handler(ins_common::RpcLogHandler);
-  if (FLAGS_ins_log_file != "stdout") {
-    ins_common::SetLogFile(FLAGS_ins_log_file.c_str(), true);
-    ins_common::SetLogSize(FLAGS_ins_log_size);
-    ins_common::SetLogSizeLimit(FLAGS_ins_log_total_size);
-  }
+  // sofa::pbrpc::set_log_handler(ins_common::RpcLogHandler);
   if (members.size() < 1) {
-    LOG(FATAL, "invalid cluster size");
+    LOG(ERROR) << "invalid cluster size";
     abort();
   }
   rpc_client_ = new galaxy::ins::RpcClient();
@@ -213,8 +207,8 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
   }
   for (auto it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::PutRequest request;
@@ -228,18 +222,19 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Put, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
-    LOG(INFO, "send request: %s, recv response: %s", request.ShortDebugString().c_str(), response.ShortDebugString().c_str());
+    LOG(INFO) << "send request: " << request.ShortDebugString()
+               << ", recv response: " << response.ShortDebugString();
     if (response.success() || response.uuid_expired()) {
       {
         MutexLock lock(mu_);
         leader_id_ = server_id;
       }
       if (response.uuid_expired()) {
-        LOG(WARNING, "uuid is expired before put: %s", key.c_str());
+        LOG(WARNING) << "uuid is expired before put: " << key;
         *error = kUnknownUser;
         {
           MutexLock lock(mu_);
@@ -252,7 +247,7 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Put, &request,
@@ -263,7 +258,7 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
             leader_id_ = server_id;
           }
           if (response.uuid_expired()) {
-            LOG(WARNING, "uuid is expired before put: %s", key.c_str());
+            LOG(WARNING) << "uuid is expired before put: " << key;
             *error = kUnknownUser;
             {
               MutexLock lock(mu_);
@@ -292,8 +287,8 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::GetRequest request;
@@ -306,7 +301,7 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Get, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -317,7 +312,7 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
       }
       *value = response.value();
       if (response.uuid_expired()) {
-        LOG(WARNING, "uuid is expired before get: %s", key.c_str());
+        LOG(WARNING) << "uuid is expired before get: " << key;
         *error = kUnknownUser;
         {
           MutexLock lock(mu_);
@@ -334,7 +329,7 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Get, &request,
@@ -346,7 +341,7 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
           }
           *value = response.value();
           if (response.uuid_expired()) {
-            LOG(WARNING, "uuid is expired before get: %s", key.c_str());
+            LOG(WARNING) << "uuid is expired before get: " << key;
             *error = kUnknownUser;
             {
               MutexLock lock(mu_);
@@ -378,7 +373,7 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
     error = &err_temp;
   }
   if (!Get(start_key, &value, error)) {  // avoid network partition problem
-    LOG(FATAL, "the leader may be unavilable");
+    LOG(ERROR) << "the leader may be unavilable";
     return false;
   }
   std::vector<std::string> server_list;
@@ -386,8 +381,8 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::ScanRequest request;
@@ -402,7 +397,7 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Scan, &request,
                                        &response, 5, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -412,8 +407,8 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
         leader_id_ = server_id;
       }
       if (response.uuid_expired()) {
-        LOG(WARNING, "uuid is expired before scan: [%s, %s)", start_key.c_str(),
-            end_key.c_str());
+        LOG(WARNING) << "uuid is expired before scan: [" << start_key << ", "
+                      << end_key << ")";
         *error = kUnknownUser;
         {
           MutexLock lock(mu_);
@@ -432,7 +427,7 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Scan, &request,
@@ -443,8 +438,8 @@ bool InsSDK::ScanOnce(const std::string& start_key, const std::string& end_key,
             leader_id_ = server_id;
           }
           if (response.uuid_expired()) {
-            LOG(WARNING, "uuid is expired before scan: [%s, %s)",
-                start_key.c_str(), end_key.c_str());
+            LOG(WARNING) << "uuid is expired before scan: [" << start_key
+                          << ", " << end_key << ")";
             *error = kUnknownUser;
             {
               MutexLock lock(mu_);
@@ -479,8 +474,8 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::DelRequest request;
@@ -493,7 +488,7 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Delete, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -503,7 +498,7 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
         leader_id_ = server_id;
       }
       if (response.uuid_expired()) {
-        LOG(WARNING, "uuid is expired before delete: %s", key.c_str());
+        LOG(WARNING) << "uuid is expired before delete: " << key;
         *error = kUnknownUser;
         {
           MutexLock lock(mu_);
@@ -516,7 +511,7 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Delete, &request,
@@ -527,7 +522,7 @@ bool InsSDK::Delete(const std::string& key, SDKError* error) {
             leader_id_ = server_id;
           }
           if (response.uuid_expired()) {
-            LOG(WARNING, "uuid is expired before delete: %s", key.c_str());
+            LOG(WARNING) << "uuid is expired before delete: " << key;
             *error = kUnknownUser;
             {
               MutexLock lock(mu_);
@@ -555,7 +550,7 @@ bool InsSDK::Watch(const std::string& key, WatchCallback user_callback,
   }
   Get(key, &old_value, error);
   if (*error != kOK && *error != kNoSuchKey) {
-    LOG(FATAL, "faild to issue a watch: %s", key.c_str());
+    LOG(ERROR) << "faild to issue a watch: " << key;
     return false;
   }
   bool key_exist = true;
@@ -599,8 +594,8 @@ void InsSDK::KeepAliveTask() {
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::KeepAliveRequest request;
@@ -615,7 +610,7 @@ void InsSDK::KeepAliveTask() {
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::KeepAlive, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -629,7 +624,7 @@ void InsSDK::KeepAliveTask() {
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::KeepAlive, &request,
@@ -662,12 +657,12 @@ void InsSDK::KeepAliveTask() {
   }
   if (session_expire) {
     if (cb != NULL) {  // session timeout callback
-      LOG(INFO, "call user callback of session timeout: %x",
-          handle_session_timeout_);
+      LOG(INFO) << "call user callback of session timeout: "
+                 << handle_session_timeout_;
       cb(cb_ctx);
     }
     MakeSessionID();
-    LOG(INFO, "create a new session: %s", GetSessionID().c_str());
+    LOG(INFO) << "create a new session: " << GetSessionID();
   }
 
   keep_alive_pool_->DelayTask(2000, std::bind(&InsSDK::KeepAliveTask, this));
@@ -690,8 +685,8 @@ void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
       (!failed && (response->success() || response->uuid_expired()))) {
     SDKError error = kOK;
     if (session_expired) {
-      LOG(INFO, "force trigger %s because session timeout",
-          response->watch_key().c_str());
+      LOG(INFO) << "force trigger " << response->watch_key()
+                 << " because session timeout";
       response->set_watch_key(request->key());
       error = kClusterDown;
     }
@@ -710,14 +705,14 @@ void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
         watch_cbs_.erase(response->watch_key());
         watch_ctx_.erase(response->watch_key());
         pending_watches_.erase(watch_id);
-        LOG(INFO, "watch #%ld trigger, key: %s", watch_id,
-            response->watch_key().c_str());
+        LOG(INFO) << "watch #" << watch_id
+                   << " trigger, key: " << response->watch_key();
       }
       WatchParam param;
       param.context = cb_ctx;
       if (response->uuid_expired()) {
-        LOG(WARNING, "uuid is expired before watch: %s",
-            response->watch_key().c_str());
+        LOG(WARNING) << "uuid is expired before watch: "
+                      << response->watch_key();
         param.key = "";
         param.value = "";
         param.deleted = false;
@@ -745,18 +740,18 @@ void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
   }
   if (!response->canceled()) {  // retry, if not cancel
     if (session_expired) {
-      LOG(INFO, "callback, no retry on expired watch");
+      LOG(INFO) << "callback, no retry on expired watch";
       return;
     }
     {
       MutexLock lock(mu_);
       if (watch_keys_.find(request->key()) == watch_keys_.end()) {
-        LOG(INFO, "watcher has been triggered");
+        LOG(INFO) << "watcher has been triggered";
         return;
       }
     }
-    LOG(INFO, "watch redirect to %s, key: %s", server_id.c_str(),
-        request->key().c_str());
+    LOG(INFO) << "watch redirect to " << server_id
+               << ", key: " << request->key();
     galaxy::ins::InsNode_Stub* stub;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
@@ -764,22 +759,21 @@ void InsSDK::KeepWatchCallback(const galaxy::ins::WatchRequest* request,
     galaxy::ins::WatchResponse* rsps = new galaxy::ins::WatchResponse();
     req->CopyFrom(*request);
     boost::function<void(const galaxy::ins::WatchRequest*,
-                         galaxy::ins::WatchResponse*, bool, int)>
-        callback;
+                         galaxy::ins::WatchResponse*, bool, int)> callback;
     callback = boost::bind(&InsSDK::KeepWatchCallback, this, _1, _2, _3, _4,
                            server_id, watch_id);
     rpc_client_->AsyncRequest(stub, &InsNode_Stub::Watch, req, rsps, callback,
                               FLAGS_ins_watch_timeout, 1);  // 120s timeout
   } else {
-    LOG(INFO, "the previous watch #%ld is canceled, key: %s", watch_id,
-        request->key().c_str());
+    LOG(INFO) << "the previous watch #" << watch_id
+               << " is canceled, key: " << request->key();
   }
 }
 
 void InsSDK::BackupWatchTask(const std::string& key,
                              const std::string& old_value, bool key_exist,
                              std::string session_id, int64_t watch_id) {
-  LOG(INFO, "issue backup watch on key: %s", key.c_str());
+  LOG(INFO) << "issue backup watch on key: " << key;
   KeepWatchTask(key, old_value, key_exist, session_id, watch_id);
 }
 
@@ -792,25 +786,25 @@ void InsSDK::KeepWatchTask(const std::string& key, const std::string& old_value,
       return;
     }
     if (pending_watches_.find(watch_id) == pending_watches_.end()) {
-      LOG(INFO, "expired watch id: %ld", watch_id);
+      LOG(INFO) << "expired watch id: " << watch_id;
       return;
     }
   }
 
   if (session_id != GetSessionID()) {
-    LOG(INFO, "expired watch on %s", key.c_str());
+    LOG(INFO) << "expired watch on " << key;
     return;
   }
 
   keep_watch_pool_->DelayTask(
       FLAGS_ins_backup_watch_timeout * 1000,  // ms
       std::bind(&InsSDK::BackupWatchTask, this, key, old_value, key_exist,
-                  session_id, watch_id));
+                session_id, watch_id));
   std::vector<std::string> server_list;
   PrepareServerList(server_list);
   int s_no = (int32_t)(server_list.size() * rand() / (RAND_MAX + 1.0));
   std::string server_id = server_list[s_no];
-  LOG(INFO, "try watch to %s, key: %s", server_id.c_str(), key.c_str());
+  LOG(INFO) << "try watch to " << server_id << ", key: " << key;
   galaxy::ins::InsNode_Stub* stub;
   rpc_client_->GetStub(server_id, &stub);
   std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
@@ -825,8 +819,7 @@ void InsSDK::KeepWatchTask(const std::string& key, const std::string& old_value,
   request->set_old_value(old_value);
   request->set_key_exist(key_exist);
   boost::function<void(const galaxy::ins::WatchRequest*,
-                       galaxy::ins::WatchResponse*, bool, int)>
-      callback;
+                       galaxy::ins::WatchResponse*, bool, int)> callback;
   callback = boost::bind(&InsSDK::KeepWatchCallback, this, _1, _2, _3, _4,
                          server_id, watch_id);
   rpc_client_->AsyncRequest(stub, &InsNode_Stub::Watch, request, response,
@@ -841,7 +834,7 @@ bool InsSDK::Lock(const std::string& key, SDKError* error) {
       is_keep_alive_bg_ = true;
     }
   }
-  LOG(INFO, "try lock on: %s", key.c_str());
+  LOG(INFO) << "try lock on: " << key;
   SDKError err_temp = kOK;
   if (error == NULL) {
     error = &err_temp;
@@ -850,7 +843,7 @@ bool InsSDK::Lock(const std::string& key, SDKError* error) {
     if (*error == kUnknownUser) {
       break;
     }
-    LOG(INFO, "try lock again on: %s", key.c_str());
+    LOG(INFO) << "try lock again on: " << key;
     ThisThread::Sleep(1000);
     {
       MutexLock lock(mu_);
@@ -879,8 +872,8 @@ bool InsSDK::TryLock(const std::string& key, SDKError* error) {
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::LockRequest request;
@@ -894,13 +887,13 @@ bool InsSDK::TryLock(const std::string& key, SDKError* error) {
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Lock, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
     if (!response.leader_id().empty()) {
       server_id = response.leader_id();
-      LOG(INFO, "redirect to leader: %s", server_id.c_str());
+      LOG(INFO) << "redirect to leader: " << server_id;
       rpc_client_->GetStub(server_id, &stub2);
       std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
       ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Lock, &request,
@@ -916,7 +909,7 @@ bool InsSDK::TryLock(const std::string& key, SDKError* error) {
         leader_id_ = server_id;
         loggin_expired_ = true;
       }
-      LOG(WARNING, "uuid is expired before lock: %s", key.c_str());
+      LOG(WARNING) << "uuid is expired before lock: " << key;
       *error = kUnknownUser;
       return false;
     }
@@ -944,8 +937,8 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::UnLockRequest request;
@@ -959,7 +952,7 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::UnLock, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "faild to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -970,7 +963,7 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
         lock_keys_.erase(key);
       }
       if (response.uuid_expired()) {
-        LOG(WARNING, "uuid is expired before unlock: %s", key.c_str());
+        LOG(WARNING) << "uuid is expired before unlock: " << key;
         *error = kUnknownUser;
         {
           MutexLock lock(mu_);
@@ -983,7 +976,7 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::UnLock, &request,
@@ -995,7 +988,7 @@ bool InsSDK::UnLock(const std::string& key, SDKError* error) {
             lock_keys_.erase(key);
           }
           if (response.uuid_expired()) {
-            LOG(WARNING, "uuid is expired before unlock: %s", key.c_str());
+            LOG(WARNING) << "uuid is expired before unlock: " << key;
             *error = kUnknownUser;
             {
               MutexLock lock(mu_);
@@ -1052,8 +1045,8 @@ bool InsSDK::Login(const std::string& username, const std::string& password,
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); ++it) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::LoginRequest request;
@@ -1063,7 +1056,7 @@ bool InsSDK::Login(const std::string& username, const std::string& password,
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Login, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "failed to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -1090,7 +1083,7 @@ bool InsSDK::Login(const std::string& username, const std::string& password,
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Login, &request,
@@ -1140,8 +1133,8 @@ bool InsSDK::Logout(SDKError* error) {
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); ++it) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::LogoutRequest request;
@@ -1150,7 +1143,7 @@ bool InsSDK::Logout(SDKError* error) {
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Logout, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "failed to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -1175,7 +1168,7 @@ bool InsSDK::Logout(SDKError* error) {
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Logout, &request,
@@ -1224,8 +1217,8 @@ bool InsSDK::Register(const std::string& username, const std::string& password,
   std::vector<std::string>::const_iterator it;
   for (it = server_list.begin(); it != server_list.end(); ++it) {
     std::string server_id = *it;
-    LOG(INFO, "rpc to %s", server_id.c_str());
-    galaxy::ins::InsNode_Stub *stub, *stub2;
+    LOG(INFO) << "rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub, *stub2;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
     galaxy::ins::RegisterRequest request;
@@ -1235,7 +1228,7 @@ bool InsSDK::Register(const std::string& username, const std::string& password,
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Register, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(FATAL, "failed to rpc %s", server_id.c_str());
+      LOG(ERROR) << "failed to rpc " << server_id;
       continue;
     }
 
@@ -1257,7 +1250,7 @@ bool InsSDK::Register(const std::string& username, const std::string& password,
     } else {
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
-        LOG(INFO, "redirect to leader: %s", server_id.c_str());
+        LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Register, &request,
@@ -1305,7 +1298,7 @@ bool InsSDK::CleanBinlog(const std::string& server_id, int64_t end_index,
   }
   if (ok && !response.success()) {
     *error = kCleanBinlogFail;
-    LOG(FATAL, "remove binlog at %ld is unsafe", end_index);
+    LOG(ERROR) << "remove binlog at " << end_index << " is unsafe";
     return false;
   }
   return true;
@@ -1367,10 +1360,10 @@ void InsSDK::RegisterSessionTimeout(void (*handle_session_timeout)(void*),
   MutexLock lock(mu_);
   handle_session_timeout_ = handle_session_timeout;
   session_timeout_ctx_ = ctx;
-  LOG(INFO, "session timeout handler: %x", handle_session_timeout_);
+  LOG(INFO) << "session timeout handler: " << handle_session_timeout_;
 }
 
-ScanResult::ScanResult(InsSDK* sdk):  offset_(0), sdk_(sdk), error_(kOK) {}
+ScanResult::ScanResult(InsSDK* sdk) : offset_(0), sdk_(sdk), error_(kOK) {}
 
 ScanResult* InsSDK::Scan(const std::string& start_key,
                          const std::string& end_key) {
