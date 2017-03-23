@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include <signal.h>
 #include <sofa/pbrpc/pbrpc.h>
 #include <stdio.h>
@@ -37,13 +38,11 @@ int main(int argc, char* argv[]) {
   boost::split(members, FLAGS_cluster_members, boost::is_any_of(","),
                boost::token_compress_on);
   if (members.size() == 0) {
-    LOG(FATAL, "cluster_members is empty, please check your configuration");
-    return -1;
+    GLOG(FATAL) << "cluster_members is empty, please check your configuration";
   }
   if (FLAGS_server_id < 1 ||
       FLAGS_server_id > static_cast<int32_t>(members.size())) {
-    LOG(FATAL, "bad server_id: %d", FLAGS_server_id);
-    return -1;
+    GLOG(FATAL) << "bad server_id: " << FLAGS_server_id;
   }
   // offset -> real endpoint
   std::string server_id = members.at(FLAGS_server_id - 1);
@@ -54,20 +53,18 @@ int main(int argc, char* argv[]) {
   sofa::pbrpc::RpcServer rpc_server(options);
   if (!rpc_server.RegisterService(
           static_cast<galaxy::ins::InsNode*>(ins_node))) {
-    LOG(FATAL, "failed to register ins_node service");
-    exit(-1);
+    GLOG(FATAL) << "failed to register ins_node service";
   }
 
   if (!rpc_server.Start(server_id)) {
-    LOG(FATAL, "failed to start server on %s", server_id.c_str());
-    exit(-2);
+    GLOG(FATAL) << "failed to start server on " << server_id;
   }
-  LOG(INFO, "Started server on %s", server_id.c_str());
+  GLOG(INFO) << "Started server on " << server_id;
   signal(SIGINT, SignalIntHandler);
   signal(SIGTERM, SignalIntHandler);
   while (!s_quit) {
     sleep(1);
   }
-  LOG(INFO, "Server shutdown");
+  GLOG(INFO) << "Server shutdown";
   return 0;
 }
