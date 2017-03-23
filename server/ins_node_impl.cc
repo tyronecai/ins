@@ -416,7 +416,7 @@ void InsNodeImpl::ForwardKeepAliveCallback(
       response->ShortDebugString().c_str());
   std::unique_ptr<const galaxy::ins::KeepAliveRequest> request_ptr(request);
   std::unique_ptr<galaxy::ins::KeepAliveResponse> response_ptr(response);
-  LOG(DEBUG, "heartbeat from clients forwarded");
+  LOG(INFO, "heartbeat from clients forwarded");
 }
 
 void InsNodeImpl::HeartbeatCallback(
@@ -484,7 +484,7 @@ void InsNodeImpl::HeartbeatForReadCallback(
   if (context->succ_count > members_.size() / 2) {
     const std::string& key = context->request->key();
     const std::string& uuid = context->request->uuid();
-    LOG(DEBUG, "client get key: %s", key.c_str());
+    LOG(INFO, "client get key: %s", key.c_str());
     Status s;
     std::string value;
     s = data_store_->Get(user_manager_->GetUsernameFromUuid(uuid), key, &value);
@@ -506,7 +506,6 @@ void InsNodeImpl::HeartbeatForReadCallback(
       } else {
         context->response->set_hit(true);
         context->response->set_success(true);
-        // LOG(INFO, "get value: %s", real_value.c_str());
         context->response->set_value(real_value);
         context->response->set_leader_id("");
       }
@@ -788,7 +787,7 @@ void InsNodeImpl::DoAppendEntries(
 
   if (commit_index_ > old_commit_index) {
     commit_cond_->Signal();
-    LOG(DEBUG, "follower: update my commit index to: %ld", commit_index_);
+    LOG(INFO, "follower: update my commit index to: %ld", commit_index_);
   }
   response->set_current_term(current_term_);
   response->set_success(true);
@@ -888,7 +887,7 @@ void InsNodeImpl::UpdateCommitIndex(int64_t a_index) {
   }
   if (match_count >= match_index_.size() / 2 && a_index > commit_index_) {
     commit_index_ = a_index;
-    LOG(DEBUG, "update to new commit index: %ld", commit_index_);
+    LOG(INFO, "update to new commit index: %ld", commit_index_);
     commit_cond_->Signal();
   }
 }
@@ -900,7 +899,7 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
   bool latest_replicating_ok = true;
   while (!stop_ && status_ == kLeader) {
     while (!stop_ && binlogger_->GetLength() <= next_index_[follower_id]) {
-      LOG(DEBUG, "no new log entry for %s", follower_id.c_str());
+      LOG(INFO, "no new log entry for %s", follower_id.c_str());
       replication_cond_->TimeWait(2000);
       if (status_ != kLeader) {
         LOG(INFO, "not longger leader, break");
@@ -1065,7 +1064,7 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
   int64_t now_timestamp = ins_common::timer::get_micros();
   if (members_.size() > 1 && (now_timestamp - heartbeat_read_timestamp_) >
                                  1000 * FLAGS_elect_timeout_min) {
-    LOG(DEBUG, "broadcast for read");
+    LOG(INFO, "broadcast for read");
     auto context = std::make_shared<ClientReadAck>();
     context->request = request;
     context->response = response;
@@ -1163,7 +1162,7 @@ void InsNodeImpl::Delete(::google::protobuf::RpcController* controller,
   }
 
   const std::string& key = request->key();
-  LOG(DEBUG, "client want delete key :%s", key.c_str());
+  LOG(INFO, "client want delete key :%s", key.c_str());
   LogEntry log_entry;
   log_entry.user = user_manager_->GetUsernameFromUuid(uuid);
   log_entry.key = key;
@@ -1225,7 +1224,7 @@ void InsNodeImpl::Put(::google::protobuf::RpcController* controller,
 
   const std::string& key = request->key();
   const std::string& value = request->value();
-  LOG(DEBUG, "client want put key :%s", key.c_str());
+  LOG(INFO, "client want put key :%s", key.c_str());
   LogEntry log_entry;
   log_entry.user = user_manager_->GetUsernameFromUuid(uuid);
   log_entry.key = key;
@@ -1360,7 +1359,7 @@ void InsNodeImpl::Lock(::google::protobuf::RpcController* controller,
       UpdateCommitIndex(binlogger_->GetLastLogIndex());
     }
   } else {
-    LOG(DEBUG, "the lock %s is hold by another session", key.c_str());
+    LOG(INFO, "the lock %s is hold by another session", key.c_str());
     response->set_leader_id("");
     response->set_success(false);
     done->Run();
@@ -1523,7 +1522,7 @@ void InsNodeImpl::KeepAlive(::google::protobuf::RpcController* controller,
   }
   response->set_success(true);
   response->set_leader_id("");
-  LOG(DEBUG, "recv session id: %s", session.session_id.c_str());
+  LOG(INFO, "recv session id: %s", session.session_id.c_str());
   // forward heartbeat of clients
   ForwardKeepAlive(request, response);
   done->Run();
@@ -1735,7 +1734,7 @@ bool InsNodeImpl::TriggerEvent(const std::string& watch_key,
     LOG(INFO, "trigger #%d watch event: %s", event_count, key.c_str());
     return true;
   } else {
-    LOG(DEBUG, "watch list: no such key : %s", key.c_str());
+    LOG(INFO, "watch list: no such key : %s", key.c_str());
     return false;
   }
 }
@@ -1749,7 +1748,7 @@ void InsNodeImpl::RemoveEventBySessionAndKey(const std::string& session_id,
     auto it_end = session_idx.upper_bound(session_id);
     for (auto it = it_start; it != it_end;) {
       if (it->key == key) {
-        LOG(DEBUG, "remove watch event: %s on %s", it->key.c_str(),
+        LOG(INFO, "remove watch event: %s on %s", it->key.c_str(),
             it->session_id.c_str());
         it->ack->response->set_canceled(true);
         it = session_idx.erase(it);
@@ -1794,7 +1793,7 @@ void InsNodeImpl::RemoveEventBySession(const std::string& session_id) {
   if (it_start != session_idx.end() && it_start->session_id == session_id) {
     auto it_end = session_idx.upper_bound(session_id);
     for (auto it = it_start; it != it_end; it++) {
-      LOG(DEBUG, "remove watch event: %s on %s", it->key.c_str(),
+      LOG(INFO, "remove watch event: %s on %s", it->key.c_str(),
           it->session_id.c_str());
     }
     session_idx.erase(it_start, it_end);
@@ -1909,7 +1908,7 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
 
   const std::string& key = request->key();
   const std::string& session_id = request->session_id();
-  LOG(DEBUG, "client want unlock key :%s", key.c_str());
+  LOG(INFO, "client want unlock key :%s", key.c_str());
   LogEntry log_entry;
   log_entry.user = user_manager_->GetUsernameFromUuid(uuid);
   log_entry.key = key;
@@ -1960,10 +1959,10 @@ void InsNodeImpl::Login(::google::protobuf::RpcController* controller,
   }
 
   const std::string& passwd = request->passwd();
-  LOG(DEBUG, "client wants to login :%s", username.c_str());
+  LOG(INFO, "client wants to login :%s", username.c_str());
   LogEntry log_entry;
   log_entry.user = UserManager::CalcUuid(username);
-  LOG(DEBUG, "now calc uuid :%s", log_entry.user.c_str());
+  LOG(INFO, "now calc uuid :%s", log_entry.user.c_str());
   log_entry.key = username;
   log_entry.value = passwd;
   log_entry.term = current_term_;
@@ -2011,7 +2010,7 @@ void InsNodeImpl::Logout(::google::protobuf::RpcController* controller,
     return;
   }
 
-  LOG(DEBUG, "client wants to logout :%s", uuid.c_str());
+  LOG(INFO, "client wants to logout :%s", uuid.c_str());
   LogEntry log_entry;
   log_entry.user = uuid;
   log_entry.term = current_term_;
@@ -2051,7 +2050,7 @@ void InsNodeImpl::Register(::google::protobuf::RpcController* controller,
 
   const std::string& username = request->username();
   const std::string& password = request->passwd();
-  LOG(DEBUG, "client wants to register :%s", username.c_str());
+  LOG(INFO, "client wants to register :%s", username.c_str());
   LogEntry log_entry;
   log_entry.key = username;
   log_entry.value = password;

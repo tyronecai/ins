@@ -101,9 +101,9 @@ int main(int argc, char* argv[]) {
     } else if (FLAGS_ins_cmd == "put") {
       std::string key = FLAGS_ins_key;
       std::string value = FLAGS_ins_value;
-      LOG(DEBUG, "key: %s, value: %s", key.c_str(), value.c_str());
+      LOG(INFO, "key: %s, value: %s", key.c_str(), value.c_str());
       if (sdk.Put(key, value, &ins_err)) {
-        LOG(DEBUG, "put success");
+        LOG(INFO, "put success");
         if (ins_err == kUnknownUser) {
           fprintf(stderr, "previous login may expired, please logout\n");
         }
@@ -112,9 +112,9 @@ int main(int argc, char* argv[]) {
       }
     } else if (FLAGS_ins_cmd == "delete") {
       std::string key = FLAGS_ins_key;
-      LOG(DEBUG, "key: %s", key.c_str());
+      LOG(INFO, "key: %s", key.c_str());
       if (sdk.Delete(key, &ins_err)) {
-        LOG(DEBUG, "delete success");
+        LOG(INFO, "delete success");
         if (ins_err == kUnknownUser) {
           fprintf(stderr, "previous login may expired, please logout\n");
         }
@@ -124,9 +124,9 @@ int main(int argc, char* argv[]) {
     } else if (FLAGS_ins_cmd == "get") {
       std::string key = FLAGS_ins_key;
       std::string value;
-      LOG(DEBUG, "key: %s", key.c_str());
+      LOG(INFO, "key: %s", key.c_str());
       if (sdk.Get(key, &value, &ins_err)) {
-        LOG(DEBUG, "get success");
+        LOG(INFO, "get success");
         if (ins_err == kOK) {
           std::cout << "value:" << value << std::endl;
         } else if (ins_err == kUnknownUser) {
@@ -240,9 +240,9 @@ int main(int argc, char* argv[]) {
     } else if (FLAGS_ins_cmd == "login") {
       std::string username = FLAGS_ins_key;
       std::string password = FLAGS_ins_value;
-      LOG(DEBUG, "user %s login", username.c_str());
+      LOG(INFO, "user %s login", username.c_str());
       if (sdk.Login(username, password, &ins_err)) {
-        LOG(DEBUG, "login finished");
+        LOG(INFO, "login finished");
         printf("login success\nperform actions for user %s now\n",
                username.c_str());
         is_logged = true;
@@ -263,9 +263,9 @@ int main(int argc, char* argv[]) {
         }
       }
     } else if (FLAGS_ins_cmd == "logout") {
-      LOG(DEBUG, "user logout");
+      LOG(INFO, "user logout");
       if (sdk.Logout(&ins_err)) {
-        LOG(DEBUG, "logout success");
+        LOG(INFO, "logout success");
         if (ins_err == kOK) {
           printf("logout success\n");
         } else {
@@ -278,9 +278,9 @@ int main(int argc, char* argv[]) {
     } else if (FLAGS_ins_cmd == "register") {
       std::string username = FLAGS_ins_key;
       std::string password = FLAGS_ins_value;
-      LOG(DEBUG, "register new user %s", username.c_str());
+      LOG(INFO, "register new user %s", username.c_str());
       if (sdk.Register(username, password, &ins_err)) {
-        LOG(DEBUG, "register finished");
+        LOG(INFO, "register finished");
         printf("register success\n");
       } else {
         LOG(FATAL, "register failed");

@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <gflags/gflags.h>
+#include <glog/logging.h>
 #include "common/logging.h"
 #include "leveldb/db.h"
 #include "utils.h"
@@ -19,8 +20,7 @@ StorageManager::StorageManager(const std::string& data_dir)
     : data_dir_(data_dir) {
   bool ok = ins_common::Mkdirs(data_dir.c_str());
   if (!ok) {
-    LOG(FATAL, "failed to create dir :%s", data_dir.c_str());
-    abort();
+    GLOG(FATAL) << "failed to create dir: " << data_dir;
   }
   // Create default database for shared namespace, i.e. anonymous user
   std::string full_name = data_dir + "/@db";
@@ -28,12 +28,12 @@ StorageManager::StorageManager(const std::string& data_dir)
   options.create_if_missing = true;
   if (FLAGS_ins_data_compress) {
     options.compression = leveldb::kSnappyCompression;
-    LOG(INFO, "enable snappy compress for data storage %s", full_name.c_str());
+    GLOG(INFO) << "enable snappy compress for data storage " << full_name;
   }
   options.write_buffer_size = FLAGS_ins_data_write_buffer_size * 1024 * 1024;
   options.block_size = FLAGS_ins_data_block_size * 1024;
-  LOG(INFO, "[data]: block_size: %d, writer_buffer_size: %d",
-      options.block_size, options.write_buffer_size);
+  GLOG(INFO) << "[data]: block_size: " << options.block_size
+             << ", writer_buffer_size: " << options.write_buffer_size;
   leveldb::DB* default_db = NULL;
   leveldb::Status status = leveldb::DB::Open(options, full_name, &default_db);
   assert(status.ok());
@@ -60,12 +60,12 @@ bool StorageManager::OpenDatabase(const std::string& name) {
   options.create_if_missing = true;
   if (FLAGS_ins_data_compress) {
     options.compression = leveldb::kSnappyCompression;
-    LOG(INFO, "enable snappy compress for data storage %s", full_name.c_str());
+    GLOG(INFO) << "enable snappy compress for data storage " << full_name;
   }
   options.write_buffer_size = FLAGS_ins_data_write_buffer_size * 1024 * 1024;
   options.block_size = FLAGS_ins_data_block_size * 1024;
-  LOG(INFO, "[data]: block_size: %d, writer_buffer_size: %d",
-      options.block_size, options.write_buffer_size);
+  GLOG(INFO) << "[data]: block_size: " << options.block_size
+             << ", writer_buffer_size: " << options.write_buffer_size;
   leveldb::DB* current_db = NULL;
   leveldb::Status status = leveldb::DB::Open(options, full_name, &current_db);
   {
@@ -185,5 +185,5 @@ Status StorageManager::Iterator::status() const {
   return kError;
 }
 
-} // namespace ins
-} // namespace galaxy
+}  // namespace ins
+}  // namespace galaxy
