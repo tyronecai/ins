@@ -55,6 +55,7 @@ int main(int argc, char* argv[]) {
   while (!s_quit) {
     sleep(1);
   }
+  rpc_server.Stop();
   LOG(INFO) << "Server shutdown";
   return 0;
 }
