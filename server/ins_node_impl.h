@@ -188,6 +188,12 @@ class InsNodeImpl : public InsNode {
   void InitMembers();
   void InitStorage();
 
+  InsNode_Stub* GetStub(const std::string& addr) {
+    InsNode_Stub* stub;
+    rpc_client_.GetStub(addr, &stub);
+    return stub;
+  }
+
   void VoteCallback(const ::galaxy::ins::VoteRequest* request,
                     ::galaxy::ins::VoteResponse* response, bool failed,
                     int error);

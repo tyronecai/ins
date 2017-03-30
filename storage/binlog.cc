@@ -101,8 +101,8 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
   options.write_buffer_size = write_buffer_size;
   options.block_size = block_size;
   LOG(INFO) << "[binlog]: " << full_name
-             << ", configed: block_size: " << options.block_size
-             << ", writer_buffer_size: " << options.write_buffer_size;
+            << ", configed: block_size: " << options.block_size
+            << ", writer_buffer_size: " << options.write_buffer_size;
   auto status = leveldb::DB::Open(options, full_name, &db_);
   if (!status.ok()) {
     LOG(FATAL) << "open db " << full_name << "fail, " << status.ToString();
@@ -119,7 +119,7 @@ BinLogger::BinLogger(const std::string& data_dir, bool compress,
       assert(slot_ok);
       last_log_term_ = log_entry.term;
       LOG(INFO) << "get length: " << length_
-                 << ", last log term: " << last_log_term_;
+                << ", last log term: " << last_log_term_;
     }
   }
 }
@@ -183,6 +183,7 @@ bool BinLogger::ReadSlot(int64_t slot_index, LogEntry* log_entry) {
     return false;
   } else {
     LOG(FATAL) << "read slot " << slot_index << " fail, " << status.ToString();
+    return false;
   }
 }
 

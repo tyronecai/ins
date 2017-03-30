@@ -207,10 +207,11 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
   }
   for (auto it = server_list.begin(); it != server_list.end(); it++) {
     std::string server_id = *it;
-    LOG(INFO) << "rpc to " << server_id;
-    galaxy::ins::InsNode_Stub* stub, *stub2;
+    LOG(INFO) << "send Put rpc to " << server_id;
+    galaxy::ins::InsNode_Stub* stub;
     rpc_client_->GetStub(server_id, &stub);
     std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+
     galaxy::ins::PutRequest request;
     galaxy::ins::PutResponse response;
     {
@@ -222,11 +223,11 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
     bool ok = rpc_client_->SendRequest(stub, &InsNode_Stub::Put, &request,
                                        &response, 2, 1);
     if (!ok) {
-      LOG(ERROR) << "failed to rpc " << server_id;
+      LOG(ERROR) << "failed to send Put rpc to " << server_id;
       continue;
     }
 
-    LOG(INFO) << "send request: " << request.ShortDebugString()
+    LOG(INFO) << "sended Put request: " << request.ShortDebugString()
                << ", recv response: " << response.ShortDebugString();
     if (response.success() || response.uuid_expired()) {
       {
@@ -248,8 +249,10 @@ bool InsSDK::Put(const std::string& key, const std::string& value,
       if (!response.leader_id().empty()) {
         server_id = response.leader_id();
         LOG(INFO) << "redirect to leader: " << server_id;
+        galaxy::ins::InsNode_Stub* stub2;
         rpc_client_->GetStub(server_id, &stub2);
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Put, &request,
                                       &response, 2, 1);
         if (ok && (response.success() || response.uuid_expired())) {
@@ -331,7 +334,9 @@ bool InsSDK::Get(const std::string& key, std::string* value, SDKError* error) {
         server_id = response.leader_id();
         LOG(INFO) << "redirect to leader: " << server_id;
         rpc_client_->GetStub(server_id, &stub2);
+
         std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard2(stub2);
+        // send request to real leader
         ok = rpc_client_->SendRequest(stub2, &InsNode_Stub::Get, &request,
                                       &response, 2, 1);
         if (ok && (response.success() || response.uuid_expired())) {

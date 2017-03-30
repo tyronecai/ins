@@ -31,8 +31,9 @@ class RpcClient {
 
   template <class T>
   void GetStub(const std::string server, T** stub) {
-    MutexLock lock(&host_map_lock_);
+    CHECK_NOTNULL(stub);
     sofa::pbrpc::RpcChannel* channel = NULL;
+    MutexLock lock(&host_map_lock_);
     auto it = host_map_.find(server);
     if (it != host_map_.end()) {
       channel = it->second;

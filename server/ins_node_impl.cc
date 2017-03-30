@@ -41,11 +41,11 @@ namespace ins {
 
 const static size_t sMaxPBSize = (26 << 20);
 
-InsNodeImpl::InsNodeImpl(std::string& server_id,
+InsNodeImpl::InsNodeImpl(std::string& server,
                          const std::vector<std::string>& members)
     : members_(members),
       stop_(false),
-      self_id_(server_id),
+      self_id_(server),
       current_term_(0),
       status_(kFollower),
       heartbeat_count_(0),
@@ -85,23 +85,23 @@ void InsNodeImpl::Init() {
 void InsNodeImpl::InitMembers() {
   // 要求自己必须在集群配置里面
   bool self_in_cluster = false;
-  for (auto it = members_.begin(); it != members_.end(); it++) {
-    if (self_id_ == *it) {
-      LOG(INFO) << "cluster member[Self]: " << *it;
+  for (auto& server : members_) {
+    if (self_id_ == server) {
+      LOG(INFO) << "cluster member[Self]: " << server;
       self_in_cluster = true;
     } else {
-      LOG(INFO) << "cluster member: " << *it;
-      others_.push_back(*it);
+      LOG(INFO) << "cluster member: " << server;
+      others_.push_back(server);
     }
   }
   if (!self_in_cluster) {
     LOG(FATAL) << "this node is not in cluster membership, please check your "
-                   "configuration. self: " << self_id_;
+                  "configuration. self: " << self_id_;
   }
   // verify cluster size
   if (members_.size() > static_cast<size_t>(FLAGS_max_cluster_size)) {
     LOG(FATAL) << "cluster size is too larger: " << members_.size() << " > "
-                << FLAGS_max_cluster_size;
+               << FLAGS_max_cluster_size;
   }
   if (members_.size() == 1) {
     LOG(INFO) << "we in single node mode";
@@ -172,7 +172,7 @@ void InsNodeImpl::CheckLeaderCrash() {
     return;
   }
   const int32_t timeout = GetRandomTimeout();
-  LOG(INFO) << "get Check Leader Crash random timeout " << timeout;
+  // LOG(INFO) << "get Check Leader Crash random timeout " << timeout;
   elect_leader_task_ = leader_crash_checker_.DelayTask(
       timeout, std::bind(&InsNodeImpl::TryToBeLeader, this));
 }
@@ -186,7 +186,7 @@ void InsNodeImpl::ShowStatus(::google::protobuf::RpcController* controller,
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
   LOG(INFO) << "last_log_index: " << last_log_index
-             << ", last_log_term: " << last_log_term;
+            << ", last_log_term: " << last_log_term;
   {
     MutexLock lock(&mu_);
     response->set_status(status_);
@@ -203,7 +203,7 @@ void InsNodeImpl::ShowStatus(::google::protobuf::RpcController* controller,
 void InsNodeImpl::TransToFollower(const char* msg, int64_t new_term) {
   mu_.AssertHeld();
   LOG(INFO) << msg << ", my term is outdated(" << current_term_ << " < "
-             << new_term << "), trans to follower";
+            << new_term << "), trans to follower";
   status_ = kFollower;
   current_term_ = new_term;
   meta_->WriteCurrentTerm(current_term_);
@@ -223,8 +223,8 @@ void InsNodeImpl::CommitIndexObserv() {
   while (!stop_) {
     while (!stop_ && commit_index_ <= last_applied_index_) {
       LOG(INFO) << "current commit_idx: " << commit_index_
-                 << ", last_applied_index: " << last_applied_index_
-                 << ", need waitting";
+                << ", last_applied_index: " << last_applied_index_
+                << ", need waitting";
       commit_cond_->Wait();
     }
     if (stop_) {
@@ -235,8 +235,8 @@ void InsNodeImpl::CommitIndexObserv() {
     bool nop_committed = false;
     mu_.Unlock();
 
-    LOG(INFO) << "wait back, begin to process index from " << from_idx << "to "
-               << to_idx;
+    LOG(INFO) << "wait back, begin to process index from " << from_idx << " to "
+              << to_idx;
     for (int64_t i = from_idx + 1; i <= to_idx; i++) {
       LogEntry log_entry;
       bool slot_ok = binlogger_->ReadSlot(i, &log_entry);
@@ -249,8 +249,8 @@ void InsNodeImpl::CommitIndexObserv() {
         case kPut:
         case kLock:
           LOG(INFO) << "Put & Lock, add to data_store_, key: " << log_entry.key
-                     << ", value: " << log_entry.value
-                     << ", user: " << log_entry.user;
+                    << ", value: " << log_entry.value
+                    << ", user: " << log_entry.user;
           type_and_value.append(1, static_cast<char>(log_entry.op));
           type_and_value.append(log_entry.value);
           s = data_store_->Put(log_entry.user, log_entry.key, type_and_value);
@@ -296,12 +296,12 @@ void InsNodeImpl::CommitIndexObserv() {
               nop_committed = true;
             }
             LOG(INFO) << "nop term: " << log_entry.term
-                       << ", cur term: " << current_term_;
+                      << ", cur term: " << current_term_;
           }
           break;
         case kUnLock: {
           LOG(INFO) << "Unlock, user: " << log_entry.user
-                     << ", key: " << log_entry.key;
+                    << ", key: " << log_entry.key;
           const std::string& key = log_entry.key;
           const std::string& old_session = log_entry.value;
           std::string value;
@@ -329,8 +329,8 @@ void InsNodeImpl::CommitIndexObserv() {
         } break;
         case kLogin:
           LOG(INFO) << "Login, key: " << log_entry.key
-                     << ", value: " << log_entry.value
-                     << ", user: " << log_entry.user;
+                    << ", value: " << log_entry.value
+                    << ", user: " << log_entry.user;
           log_status = user_manager_->Login(log_entry.key, log_entry.value,
                                             log_entry.user);
           if (log_status == kOk) {
@@ -344,7 +344,7 @@ void InsNodeImpl::CommitIndexObserv() {
           break;
         case kRegister:
           LOG(INFO) << "Register, key: " << log_entry.key
-                     << ", value: " << log_entry.value;
+                    << ", value: " << log_entry.value;
           log_status = user_manager_->Register(log_entry.key, log_entry.value);
           break;
         default:
@@ -410,9 +410,8 @@ void InsNodeImpl::ForwardKeepAliveCallback(
     const ::galaxy::ins::KeepAliveRequest* request,
     ::galaxy::ins::KeepAliveResponse* response, bool /*failed*/,
     int /*error*/) {
-  LOG(INFO) << "recv ForwardKeepAliveCallback: ["
-             << request->ShortDebugString() << "] <=> ["
-             << response->ShortDebugString() << "]";
+  LOG(INFO) << "recv ForwardKeepAliveCallback: [" << request->ShortDebugString()
+            << "] <=> [" << response->ShortDebugString() << "]";
   std::unique_ptr<const galaxy::ins::KeepAliveRequest> request_ptr(request);
   std::unique_ptr<galaxy::ins::KeepAliveResponse> response_ptr(response);
   LOG(INFO) << "heartbeat from clients forwarded";
@@ -422,8 +421,8 @@ void InsNodeImpl::HeartbeatCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed,
     int /*error*/) {
-  LOG(INFO) << "recv HeartbeatCallback: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+  // LOG(INFO) << "recv HeartbeatCallback: [" << request->ShortDebugString()
+  //          << "] <=> [" << response->ShortDebugString() << "]";
   MutexLock lock(&mu_);
   std::unique_ptr<const galaxy::ins::AppendEntriesRequest> request_ptr(request);
   std::unique_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
@@ -445,9 +444,8 @@ void InsNodeImpl::HeartbeatForReadCallback(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response, bool failed, int /*error*/,
     std::shared_ptr<ClientReadAck> context) {
-  LOG(INFO) << "recv HeartbeatForReadCallback: ["
-             << request->ShortDebugString() << "] <=> ["
-             << response->ShortDebugString() << "]";
+  LOG(INFO) << "recv HeartbeatForReadCallback: [" << request->ShortDebugString()
+            << "] <=> [" << response->ShortDebugString() << "]";
   MutexLock lock(&mu_);
   std::unique_ptr<const galaxy::ins::AppendEntriesRequest> request_ptr(request);
   std::unique_ptr<galaxy::ins::AppendEntriesResponse> response_ptr(response);
@@ -534,23 +532,22 @@ void InsNodeImpl::BroadCastHeartbeat() {
     LOG(INFO) << "no longer leader";
     return;
   }
-  for (auto it = others_.begin(); it != others_.end(); it++) {
-    InsNode_Stub* stub;
-    rpc_client_.GetStub(*it, &stub);
-    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+  boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
+                       ::galaxy::ins::AppendEntriesResponse*, bool, int)>
+      callback;
+  for (auto& server : others_) {
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(server));
     auto request = new ::galaxy::ins::AppendEntriesRequest();
     auto response = new ::galaxy::ins::AppendEntriesResponse();
     request->set_term(current_term_);
     request->set_leader_id(self_id_);
     request->set_leader_commit_index(commit_index_);
-    LOG(INFO) << "Send Heartbeat to " << *it
-               << ", current_term: " << current_term_ << ", self: " << self_id_
-               << ", commit_index: " << commit_index_;
-    boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
-                         ::galaxy::ins::AppendEntriesResponse*, bool, int)>
-        callback =
-            boost::bind(&InsNodeImpl::HeartbeatCallback, this, _1, _2, _3, _4);
-    rpc_client_.AsyncRequest(stub, &InsNode_Stub::AppendEntries, request,
+    // LOG(INFO) << "Send Heartbeat to " << server
+    //          << ", current_term: " << current_term_ << ", self: " << self_id_
+    //          << ", commit_index: " << commit_index_;
+    callback =
+        boost::bind(&InsNodeImpl::HeartbeatCallback, this, _1, _2, _3, _4);
+    rpc_client_.AsyncRequest(stub.get(), &InsNode_Stub::AppendEntries, request,
                              response, callback);
   }
   heart_beat_pool_.DelayTask(50,
@@ -560,16 +557,17 @@ void InsNodeImpl::BroadCastHeartbeat() {
 void InsNodeImpl::StartReplicateLog() {
   mu_.AssertHeld();
   LOG(INFO) << "Start replicate log to followers";
-  for (auto it = others_.begin(); it != others_.end(); it++) {
+  for (auto& uuid : others_) {
     // 所有正在replication的都加到这里，结束后会remove掉
-    if (replicating_.find(*it) != replicating_.end()) {
-      LOG(INFO) << "there is another thread replicating on: " << *it;
+    if (replicating_.find(uuid) != replicating_.end()) {
+      LOG(INFO) << "there is another thread replicating to follower: " << uuid;
       continue;
     }
     // 先用自己binlog的length去探测followers
-    next_index_[*it] = binlogger_->GetLength();
-    match_index_[*it] = -1;
-    replicatter_.AddTask(std::bind(&InsNodeImpl::ReplicateLog, this, *it));
+    LOG(INFO) << "Start replicate log to follower: " << uuid;
+    next_index_[uuid] = binlogger_->GetLength();
+    match_index_[uuid] = -1;
+    replicatter_.AddTask(std::bind(&InsNodeImpl::ReplicateLog, this, uuid));
   }
   LogEntry log_entry;
   log_entry.key = "Ping";
@@ -586,6 +584,7 @@ void InsNodeImpl::TransToLeader() {
   current_leader_ = self_id_;
   LOG(INFO) << "I win the election, term: " << current_term_;
   heart_beat_pool_.AddTask(std::bind(&InsNodeImpl::BroadCastHeartbeat, this));
+  // 开始复制binlog
   StartReplicateLog();
 }
 
@@ -593,13 +592,13 @@ void InsNodeImpl::VoteCallback(const ::galaxy::ins::VoteRequest* request,
                                ::galaxy::ins::VoteResponse* response,
                                bool failed, int /*error*/) {
   LOG(INFO) << "recv VoteCallback: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   MutexLock lock(&mu_);
   std::unique_ptr<const galaxy::ins::VoteRequest> request_ptr(request);
   std::unique_ptr<galaxy::ins::VoteResponse> response_ptr(response);
   if (failed) {
-    LOG(WARNING) << "Vote failed: [" << request->ShortDebugString()
-                  << "] <=> [" << response->ShortDebugString() << "]";
+    LOG(WARNING) << "Vote failed: [" << request->ShortDebugString() << "] <=> ["
+                 << response->ShortDebugString() << "]";
     return;
   }
 
@@ -635,27 +634,33 @@ void InsNodeImpl::TryToBeLeader() {
     current_leader_ = self_id_;
     in_safe_mode_ = false;
     commit_index_ = last_applied_index_;
-    current_term_++;
+    ++current_term_;
     meta_->WriteCurrentTerm(current_term_);
     return;
   }
+  // cluster mode
   if (status_ == kLeader) {
-    LOG(INFO) << "status_ == kLeader";
+    // LOG(INFO) << "I'm leader now, no need to check";
     CheckLeaderCrash();
     return;
   }
+  // 如果收到了heartbeat则什么事都没有
   if (status_ == kFollower && heartbeat_count_ > 0) {
-    LOG(INFO) << "status_ == kFollower, recved " << heartbeat_count_
-               << " heartbeat from leader " << current_leader_;
+    // LOG(INFO) << "status_ == kFollower, recved " << heartbeat_count_
+    //          << " heartbeat from leader " << current_leader_;
     heartbeat_count_ = 0;
     CheckLeaderCrash();
     return;
   }
-  LOG(INFO) << "Try to be leader, broadcast vote";
-  current_term_++;
+
+  LOG(INFO) << "Try to be leader, status_ " << NodeStatus_Name(status_)
+            << ", broadcast vote";
+  ++current_term_;
   meta_->WriteCurrentTerm(current_term_);
   status_ = kCandidate;
   // 先给自己投票
+  voted_for_.clear();
+  vote_grant_.clear();
   voted_for_[current_term_] = self_id_;
   meta_->WriteVotedFor(current_term_, self_id_);
   ++vote_grant_[current_term_];
@@ -664,33 +669,31 @@ void InsNodeImpl::TryToBeLeader() {
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
   LOG(INFO) << "Got last log index " << last_log_index << ", last term "
-             << last_log_term;
+            << last_log_term;
 
-  LOG(INFO) << "Broadcast vote request to cluster, new term: "
-             << current_term_;
+  LOG(INFO) << "Broadcast vote request with term: " << current_term_;
   boost::function<void(const ::galaxy::ins::VoteRequest*,
                        ::galaxy::ins::VoteResponse*, bool, int)> callback;
-  for (auto it = others_.begin(); it != others_.end(); it++) {
-    InsNode_Stub* stub;
-    rpc_client_.GetStub(*it, &stub);
-    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+  for (auto& server : others_) {
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(server));
     auto request = new ::galaxy::ins::VoteRequest();
     auto response = new ::galaxy::ins::VoteResponse();
     request->set_candidate_id(self_id_);
     request->set_term(current_term_);
     request->set_last_log_index(last_log_index);
     request->set_last_log_term(last_log_term);
-    LOG(INFO) << "Send VoteRequest to " << *it
-               << ", candidate_id: " << self_id_
-               << ", current_term: " << current_term_
-               << ", last_log_index: " << last_log_index
-               << ", last_log_term: " << last_log_term;
+    LOG(INFO) << "Send VoteRequest to " << server
+              << ", candidate_id: " << self_id_
+              << ", current_term: " << current_term_
+              << ", last_log_index: " << last_log_index
+              << ", last_log_term: " << last_log_term;
     callback = boost::bind(&InsNodeImpl::VoteCallback, this, _1, _2, _3, _4);
-    rpc_client_.AsyncRequest(stub, &InsNode_Stub::Vote, request, response,
+    rpc_client_.AsyncRequest(stub.get(), &InsNode_Stub::Vote, request, response,
                              callback);
   }
 
   // 是否可能下一次检查时vote还未结束？
+  // 非常可能，此时要加大间隔，不能一直这么频繁的发Vote Request
   CheckLeaderCrash();
 }
 
@@ -698,8 +701,7 @@ void InsNodeImpl::DoAppendEntries(
     const ::galaxy::ins::AppendEntriesRequest* request,
     ::galaxy::ins::AppendEntriesResponse* response,
     ::google::protobuf::Closure* done) {
-  LOG(INFO) << "recv AppendEntries: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+  LOG(INFO) << "recv AppendEntries: [" << request->ShortDebugString() << "]";
   MutexLock lock(&mu_);
   if (request->term() < current_term_) {
     LOG(INFO) << "[AppendEntries] term is outdated";
@@ -712,12 +714,12 @@ void InsNodeImpl::DoAppendEntries(
 
   if (status_ != kFollower) {
     LOG(INFO) << "Update current status from " << NodeStatus_Name(status_)
-               << " to " << NodeStatus_Name(kFollower);
+              << " to " << NodeStatus_Name(kFollower);
     status_ = kFollower;
   }
   if (request->term() > current_term_) {
     LOG(INFO) << "Update current term from " << current_term_ << " to "
-               << request->term();
+              << request->term();
     current_term_ = request->term();
     meta_->WriteCurrentTerm(request->term());
   }
@@ -745,8 +747,8 @@ void InsNodeImpl::DoAppendEntries(
     }
     if (prev_log_term != request->prev_log_term()) {
       LOG(INFO) << "[AppendEntries] term not match, index: "
-                 << request->prev_log_index() << ", term: " << prev_log_term
-                 << ", " << request->prev_log_term();
+                << request->prev_log_index() << ", term: " << prev_log_term
+                << ", " << request->prev_log_term();
       // 数据不一致，需要退一步
       binlogger_->Truncate(request->prev_log_index() - 1);
       response->set_current_term(current_term_);
@@ -761,7 +763,7 @@ void InsNodeImpl::DoAppendEntries(
       response->set_log_length(binlogger_->GetLength());
       response->set_is_busy(true);
       LOG(INFO) << "[AppendEntries] speed too fast, "
-                 << request->prev_log_index() << " > " << last_applied_index_;
+                << request->prev_log_index() << " > " << last_applied_index_;
       done->Run();
       return;
     }
@@ -769,7 +771,7 @@ void InsNodeImpl::DoAppendEntries(
       const int64_t old_length = binlogger_->GetLength();
       binlogger_->Truncate(request->prev_log_index());
       LOG(INFO) << "[AppendEntries] log length alignment, truncate from: "
-                 << old_length << " to " << request->prev_log_index();
+                << old_length << " to " << request->prev_log_index();
     }
     mu_.Unlock();
     binlogger_->AppendEntryList(request->entries());
@@ -778,7 +780,6 @@ void InsNodeImpl::DoAppendEntries(
   int64_t old_commit_index = commit_index_;
   commit_index_ =
       std::min(binlogger_->GetLastLogIndex(), request->leader_commit_index());
-
   if (commit_index_ > old_commit_index) {
     commit_cond_->Signal();
     LOG(INFO) << "follower: update my commit index to: " << commit_index_;
@@ -808,8 +809,8 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
                        const ::galaxy::ins::VoteRequest* request,
                        ::galaxy::ins::VoteResponse* response,
                        ::google::protobuf::Closure* done) {
-  LOG(INFO) << "recv Vote Request: [" << request->ShortDebugString()
-             << "] => [" << response->ShortDebugString() << "]";
+  LOG(INFO) << "recv Vote Request: [" << request->ShortDebugString() << "] => ["
+            << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Vote");
   MutexLock lock(&mu_);
   // 如果对端的term小于自己的，直接拒绝掉vote_granted == false
@@ -823,8 +824,8 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   int64_t last_log_term;
   GetLastLogIndexAndTerm(&last_log_index, &last_log_term);
   LOG(INFO) << "vote request last log term & index ("
-             << request->last_log_term() << ", " << request->last_log_index()
-             << "), self (" << last_log_term << ", " << last_log_index << ")";
+            << request->last_log_term() << ", " << request->last_log_index()
+            << "), self (" << last_log_term << ", " << last_log_index << ")";
 
   // 如果对端的last_log_term小于本地的，就拒绝
   // 如果last_log_index小于本地的，也拒绝
@@ -850,7 +851,7 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   if (iter != voted_for_.end()) {
     if (iter->second != request->candidate_id()) {
       LOG(WARNING) << "myself " << self_id_ << " already voted for "
-                    << iter->second << " at term " << current_term_;
+                   << iter->second << " at term " << current_term_;
       response->set_vote_granted(false);
       response->set_term(current_term_);
       done->Run();
@@ -859,7 +860,7 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
   } else {
     // 记录在current_term_投票给了candidate_id
     LOG(WARNING) << "myself " << self_id_ << " voted for "
-                  << request->candidate_id() << " at term " << current_term_;
+                 << request->candidate_id() << " at term " << current_term_;
     voted_for_[current_term_] = request->candidate_id();
     meta_->WriteVotedFor(current_term_, request->candidate_id());
   }
@@ -872,9 +873,8 @@ void InsNodeImpl::Vote(::google::protobuf::RpcController* controller,
 void InsNodeImpl::UpdateCommitIndex(int64_t a_index) {
   mu_.AssertHeld();
   uint32_t match_count = 0;
-  for (auto it = members_.begin(); it != members_.end(); it++) {
-    std::string& server_id = *it;
-    if (match_index_[server_id] >= a_index) {
+  for (auto& server : members_) {
+    if (match_index_[server] >= a_index) {
       match_count += 1;
     }
   }
@@ -886,6 +886,7 @@ void InsNodeImpl::UpdateCommitIndex(int64_t a_index) {
 }
 
 void InsNodeImpl::ReplicateLog(std::string follower_id) {
+  LOG(INFO) << "Start ReplicateLog to " << follower_id;
   MutexLock lock(&mu_);
   replicating_.insert(follower_id);
 
@@ -920,20 +921,16 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
     std::string& leader_id = self_id_;
     LogEntry prev_log_entry;
     if (prev_index > -1) {
-      bool slot_ok = binlogger_->ReadSlot(prev_index, &prev_log_entry);
-      if (!slot_ok) {
+      if (!binlogger_->ReadSlot(prev_index, &prev_log_entry)) {
         LOG(WARNING) << "bad slot [" << prev_index << "], can't replicate on "
-                      << follower_id;
+                     << follower_id;
         break;
       }
       prev_term = prev_log_entry.term;
     }
     mu_.Unlock();
 
-    InsNode_Stub* stub;
-    int64_t max_term = -1;
-    rpc_client_.GetStub(follower_id, &stub);
-    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(follower_id));
     galaxy::ins::AppendEntriesRequest request;
     galaxy::ins::AppendEntriesResponse response;
     request.set_term(cur_term);
@@ -941,6 +938,8 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
     request.set_prev_log_index(prev_index);
     request.set_prev_log_term(prev_term);
     request.set_leader_commit_index(cur_commit_index);
+
+    int64_t max_term = -1;
     bool has_bad_slot = false;
     for (int64_t idx = index; idx < (index + batch_span); idx++) {
       LogEntry log_entry;
@@ -963,7 +962,7 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
       mu_.Lock();
       break;
     }
-    bool ok = rpc_client_.SendRequest(stub, &InsNode_Stub::AppendEntries,
+    bool ok = rpc_client_.SendRequest(stub.get(), &InsNode_Stub::AppendEntries,
                                       &request, &response, 60, 1);
     mu_.Lock();
     mu_.AssertHeld();
@@ -991,11 +990,11 @@ void InsNodeImpl::ReplicateLog(std::string follower_id) {
       } else {  // (index, term ) miss match
         next_index_[follower_id] =
             std::min(next_index_[follower_id] - 1, response.log_length());
-        LOG(INFO) << "adjust next_index of " << follower_id << " to "
-                   << next_index_[follower_id];
         if (next_index_[follower_id] < 0) {
           next_index_[follower_id] = 0;
         }
+        LOG(INFO) << "adjust next_index of " << follower_id << " to "
+                  << next_index_[follower_id];
       }
     } else {  // rpc error;
       mu_.Unlock();
@@ -1012,8 +1011,8 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
                       const ::galaxy::ins::GetRequest* request,
                       ::galaxy::ins::GetResponse* response,
                       ::google::protobuf::Closure* done) {
-  LOG(INFO) << "recv Get Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+  LOG(INFO) << "recv Get Request: [" << request->ShortDebugString() << "] <=> ["
+            << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Get");
   perform_.Get();
   MutexLock lock(&mu_);
@@ -1061,25 +1060,23 @@ void InsNodeImpl::Get(::google::protobuf::RpcController* controller,
     context->response = response;
     context->done = done;
     context->succ_count = 1;  // self Get success;
-    for (auto it = others_.begin(); it != others_.end(); it++) {
-      InsNode_Stub* stub;
-      rpc_client_.GetStub(*it, &stub);
-      std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
+                         ::galaxy::ins::AppendEntriesResponse*, bool, int)>
+        callback;
+    for (auto& server : others_) {
+      std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(server));
       auto request = new ::galaxy::ins::AppendEntriesRequest();
       auto response = new ::galaxy::ins::AppendEntriesResponse();
       request->set_term(current_term_);
       request->set_leader_id(self_id_);
       request->set_leader_commit_index(commit_index_);
-      LOG(INFO) << "Send AppendEntriesRequest to " << *it
-                 << ", current_term: " << current_term_
-                 << ", self: " << self_id_
-                 << ", commit_index: " << commit_index_;
-      boost::function<void(const ::galaxy::ins::AppendEntriesRequest*,
-                           ::galaxy::ins::AppendEntriesResponse*, bool, int)>
-          callback = boost::bind(&InsNodeImpl::HeartbeatForReadCallback, this,
-                                 _1, _2, _3, _4, context);
-      rpc_client_.AsyncRequest(stub, &InsNode_Stub::AppendEntries, request,
-                               response, callback);
+      LOG(INFO) << "Send AppendEntriesRequest to " << server
+                << ", current_term: " << current_term_ << ", self: " << self_id_
+                << ", commit_index: " << commit_index_;
+      callback = boost::bind(&InsNodeImpl::HeartbeatForReadCallback, this, _1,
+                             _2, _3, _4, context);
+      rpc_client_.AsyncRequest(stub.get(), &InsNode_Stub::AppendEntries,
+                               request, response, callback);
     }
   } else {
     mu_.Unlock();
@@ -1124,7 +1121,7 @@ void InsNodeImpl::Delete(::google::protobuf::RpcController* controller,
                          ::galaxy::ins::DelResponse* response,
                          ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Delete Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Delete");
   perform_.Delete();
   MutexLock lock(&mu_);
@@ -1153,6 +1150,7 @@ void InsNodeImpl::Delete(::google::protobuf::RpcController* controller,
 
   const std::string& key = request->key();
   LOG(INFO) << "client want delete key: " << key;
+
   LogEntry log_entry;
   log_entry.user = user_manager_->GetUsernameFromUuid(uuid);
   log_entry.key = key;
@@ -1160,6 +1158,7 @@ void InsNodeImpl::Delete(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kDel;
   binlogger_->AppendEntry(log_entry);
+
   int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
@@ -1175,19 +1174,18 @@ void InsNodeImpl::Put(::google::protobuf::RpcController* controller,
                       const ::galaxy::ins::PutRequest* request,
                       ::galaxy::ins::PutResponse* response,
                       ::google::protobuf::Closure* done) {
-  LOG(INFO) << "recv Put Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+  LOG(INFO) << "recv Put Request: [" << request->ShortDebugString() << "] <=> ["
+            << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Put");
   perform_.Put();
+
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
     response->set_success(false);
     response->set_leader_id(current_leader_);
     done->Run();
     return;
-  }
-
-  if (status_ == kCandidate) {
+  } else if (status_ == kCandidate) {
     response->set_success(false);
     response->set_leader_id("");
     done->Run();
@@ -1195,8 +1193,8 @@ void InsNodeImpl::Put(::google::protobuf::RpcController* controller,
   }
 
   if (client_ack_.size() > static_cast<size_t>(FLAGS_max_write_pending)) {
-    LOG(WARNING) << "write pending size too big, " << client_ack_.size()
-                  << " > " << FLAGS_max_write_pending;
+    LOG(WARNING) << "too much pending write: " << client_ack_.size() << " > "
+                 << FLAGS_max_write_pending;
     response->set_success(false);
     response->set_leader_id("");
     done->Run();
@@ -1222,11 +1220,13 @@ void InsNodeImpl::Put(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kPut;
   binlogger_->AppendEntry(log_entry);
-  int64_t cur_index = binlogger_->GetLastLogIndex();
+
+  const int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
   ack.response = response;
   replication_cond_->Broadcast();
+
   if (single_node_mode_) {  // single node cluster
     UpdateCommitIndex(binlogger_->GetLastLogIndex());
   }
@@ -1275,7 +1275,7 @@ void InsNodeImpl::Lock(::google::protobuf::RpcController* controller,
                        ::galaxy::ins::LockResponse* response,
                        ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Lock Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Lock");
   perform_.Lock();
   MutexLock lock(&mu_);
@@ -1361,7 +1361,7 @@ void InsNodeImpl::Scan(::google::protobuf::RpcController* controller,
                        ::galaxy::ins::ScanResponse* response,
                        ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Scan Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Scan");
   perform_.Scan();
   const std::string& uuid = request->uuid();
@@ -1467,7 +1467,7 @@ void InsNodeImpl::KeepAlive(::google::protobuf::RpcController* controller,
                             ::galaxy::ins::KeepAliveResponse* response,
                             ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv KeepAlive Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "KeepAlive");
   perform_.KeepAlive();
   {
@@ -1524,22 +1524,19 @@ void InsNodeImpl::ForwardKeepAlive(
       return;
     }
   }
-  for (auto it = others_.begin(); it != others_.end(); it++) {
-    InsNode_Stub* stub;
-    rpc_client_.GetStub(*it, &stub);
-    std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+  boost::function<void(const ::galaxy::ins::KeepAliveRequest*,
+                       ::galaxy::ins::KeepAliveResponse*, bool, int)> callback;
+  for (auto& server : others_) {
+    std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(server));
     auto forward_request = new ::galaxy::ins::KeepAliveRequest();
     auto forward_response = new ::galaxy::ins::KeepAliveResponse();
     forward_request->CopyFrom(*request);
     forward_response->CopyFrom(*response);
     forward_request->set_forward_from_leader(true);
-    boost::function<void(const ::galaxy::ins::KeepAliveRequest*,
-                         ::galaxy::ins::KeepAliveResponse*, bool, int)>
-        callback;
     callback = boost::bind(&InsNodeImpl::ForwardKeepAliveCallback, this, _1, _2,
                            _3, _4);
-    rpc_client_.AsyncRequest(stub, &InsNode_Stub::KeepAlive, forward_request,
-                             forward_response, callback);
+    rpc_client_.AsyncRequest(stub.get(), &InsNode_Stub::KeepAlive,
+                             forward_request, forward_response, callback);
   }
 }
 
@@ -1736,7 +1733,7 @@ void InsNodeImpl::RemoveEventBySessionAndKey(const std::string& session_id,
     for (auto it = it_start; it != it_end;) {
       if (it->key == key) {
         LOG(INFO) << "remove watch event: " << it->key << " on "
-                   << it->session_id;
+                  << it->session_id;
         it->ack->response->set_canceled(true);
         it = session_idx.erase(it);
       } else {
@@ -1758,7 +1755,7 @@ void InsNodeImpl::TriggerEventBySessionAndKey(const std::string& session_id,
     for (auto it = it_start; it != it_end;) {
       if (it->key == key) {
         LOG(INFO) << "trigger watch event: " << it->key << " on "
-                   << it->session_id;
+                  << it->session_id;
         it->ack->response->set_watch_key(GetKeyFromEvent(key));
         it->ack->response->set_key(GetKeyFromEvent(key));
         it->ack->response->set_value(value);
@@ -1781,7 +1778,7 @@ void InsNodeImpl::RemoveEventBySession(const std::string& session_id) {
     auto it_end = session_idx.upper_bound(session_id);
     for (auto it = it_start; it != it_end; it++) {
       LOG(INFO) << "remove watch event: " << it->key << " on "
-                 << it->session_id;
+                << it->session_id;
     }
     session_idx.erase(it_start, it_end);
   }
@@ -1792,7 +1789,7 @@ void InsNodeImpl::Watch(::google::protobuf::RpcController* controller,
                         ::galaxy::ins::WatchResponse* response,
                         ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Watch Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Watch");
   perform_.Watch();
   {
@@ -1848,12 +1845,12 @@ void InsNodeImpl::Watch(::google::protobuf::RpcController* controller,
     if (real_value != request->old_value() ||
         key_exist != request->key_exist()) {
       LOG(INFO) << "key: " << key << ", new_v: " << real_value
-                 << ", old_v: " << request->old_value();
+                << ", old_v: " << request->old_value();
       TriggerEventBySessionAndKey(request->session_id(), bindedkey, real_value,
                                   (s == kNotFound));
     } else if (op == kLock && IsExpiredSession(real_value)) {
       LOG(INFO) << "key(lock): " << key << ", new_v: " << real_value
-                 << ", old_v: " << request->old_value();
+                << ", old_v: " << request->old_value();
       TriggerEventBySessionAndKey(request->session_id(), bindedkey, "", true);
     }
   }
@@ -1864,7 +1861,7 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
                          ::galaxy::ins::UnLockResponse* response,
                          ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv UnLock Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Unlock");
   perform_.Unlock();
   MutexLock lock(&mu_);
@@ -1894,6 +1891,7 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
   const std::string& key = request->key();
   const std::string& session_id = request->session_id();
   LOG(INFO) << "client want unlock key: " << key;
+
   LogEntry log_entry;
   log_entry.user = user_manager_->GetUsernameFromUuid(uuid);
   log_entry.key = key;
@@ -1901,6 +1899,7 @@ void InsNodeImpl::UnLock(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kUnLock;
   binlogger_->AppendEntry(log_entry);
+
   int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
@@ -1917,7 +1916,7 @@ void InsNodeImpl::Login(::google::protobuf::RpcController* controller,
                         ::galaxy::ins::LoginResponse* response,
                         ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Login Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Login");
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
@@ -1952,6 +1951,7 @@ void InsNodeImpl::Login(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kLogin;
   binlogger_->AppendEntry(log_entry);
+
   int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
@@ -1968,7 +1968,7 @@ void InsNodeImpl::Logout(::google::protobuf::RpcController* controller,
                          ::galaxy::ins::LogoutResponse* response,
                          ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Logout Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Logout");
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
@@ -1999,6 +1999,7 @@ void InsNodeImpl::Logout(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kLogout;
   binlogger_->AppendEntry(log_entry);
+
   int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
@@ -2015,7 +2016,7 @@ void InsNodeImpl::Register(::google::protobuf::RpcController* controller,
                            ::galaxy::ins::RegisterResponse* response,
                            ::google::protobuf::Closure* done) {
   LOG(INFO) << "recv Register Request: [" << request->ShortDebugString()
-             << "] <=> [" << response->ShortDebugString() << "]";
+            << "] <=> [" << response->ShortDebugString() << "]";
   SampleAccessLog(controller, "Register");
   MutexLock lock(&mu_);
   if (status_ == kFollower) {
@@ -2039,6 +2040,7 @@ void InsNodeImpl::Register(::google::protobuf::RpcController* controller,
   log_entry.term = current_term_;
   log_entry.op = kRegister;
   binlogger_->AppendEntry(log_entry);
+
   int64_t cur_index = binlogger_->GetLastLogIndex();
   ClientAck& ack = client_ack_[cur_index];
   ack.done = done;
@@ -2065,8 +2067,8 @@ void InsNodeImpl::CleanBinlog(::google::protobuf::RpcController* /*controller*/,
     if (last_applied_index_ < del_end_index) {
       response->set_success(false);
       LOG(WARNING) << "del log request: " << del_end_index
-                    << " > last_applied_index: " << last_applied_index_
-                    << " is unsafe";
+                   << " > last_applied_index: " << last_applied_index_
+                   << " is unsafe";
       done->Run();
       return;
     }
@@ -2090,10 +2092,10 @@ void InsNodeImpl::RpcStat(::google::protobuf::RpcController* /*controller*/,
     stats.resize(request->op_size());
     std::copy(request->op().begin(), request->op().end(), stats.begin());
   }
-  for (auto it = stats.begin(); it != stats.end(); ++it) {
+  for (auto& item : stats) {
     int64_t current_stat = 0l;
     int64_t average_stat = 0l;
-    switch (StatOperation(*it)) {
+    switch (StatOperation(item)) {
       case kPutOp:
         current_stat = perform_.CurrentPut();
         average_stat = perform_.AveragePut();
@@ -2151,17 +2153,14 @@ void InsNodeImpl::GarbageClean() {
   if (is_leader) {
     int64_t min_applied_index = std::numeric_limits<int64_t>::max();
     bool ret_all = true;
-    for (auto it = all_members.begin(); it != all_members.end(); it++) {
-      galaxy::ins::InsNode_Stub* stub;
-      std::string& server_id = *it;
-      rpc_client_.GetStub(server_id, &stub);
-      std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+    for (auto& server : all_members) {
+      std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(server));
       ::galaxy::ins::ShowStatusRequest request;
       ::galaxy::ins::ShowStatusResponse response;
-      bool ok = rpc_client_.SendRequest(stub, &InsNode_Stub::ShowStatus,
+      bool ok = rpc_client_.SendRequest(stub.get(), &InsNode_Stub::ShowStatus,
                                         &request, &response, 2, 1);
       if (!ok) {
-        LOG(INFO) << "faild to get last_applied_index from " << server_id;
+        LOG(INFO) << "faild to get last_applied_index from " << server;
         ret_all = false;
         break;
       } else {
@@ -2179,18 +2178,16 @@ void InsNodeImpl::GarbageClean() {
       }
       if (old_index != safe_clean_index) {
         LOG(INFO) << "[gc] safe clean index is: " << safe_clean_index;
-        for (auto it = all_members.begin(); it != all_members.end(); it++) {
-          galaxy::ins::InsNode_Stub* stub;
-          std::string& server_id = *it;
-          rpc_client_.GetStub(server_id, &stub);
-          std::unique_ptr<galaxy::ins::InsNode_Stub> stub_guard(stub);
+        for (auto& server : all_members) {
+          std::unique_ptr<galaxy::ins::InsNode_Stub> stub(GetStub(server));
           ::galaxy::ins::CleanBinlogRequest request;
           ::galaxy::ins::CleanBinlogResponse response;
           request.set_end_index(safe_clean_index);
-          bool ok = rpc_client_.SendRequest(stub, &InsNode_Stub::CleanBinlog,
-                                            &request, &response, 2, 1);
+          bool ok =
+              rpc_client_.SendRequest(stub.get(), &InsNode_Stub::CleanBinlog,
+                                      &request, &response, 2, 1);
           if (!ok) {
-            LOG(INFO) << "failed to clean binlog request to " << server_id;
+            LOG(INFO) << "failed to clean binlog request to " << server;
           }
         }
       }
